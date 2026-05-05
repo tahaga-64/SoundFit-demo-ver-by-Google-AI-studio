@@ -1,0 +1,6 @@
+{
+  "name": "SoundMatch",
+  "description": "音楽の趣味で繋がるマッチングアプリ。Tinder風のスワイプ操作で、同じアーティストやジャンルが好きな仲間を見つけましょう。",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
