@@ -7,7 +7,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { Heart, X, Music, User, MessageCircle, Info, Sparkles, AudioLines, Send, ChevronLeft, Bell, Settings } from 'lucide-react';
 import { DUMMY_PROFILES, type MusicProfile, type Message, type CompatibilityResult } from './types';
-import { analyzeCompatibility, testGeminiConnection } from './ai';
+import { analyzeCompatibility, testAIConnection } from './ai';
 import { loginWithSpotify, handleCallback, getStoredToken, clearToken, fetchMySpotifyProfile } from './spotify';
 
 const DEFAULT_PROFILE: MusicProfile = {
@@ -659,7 +659,7 @@ export default function App() {
                   onClick={async () => {
                     setTestingAI(true);
                     setAiTestResult(null);
-                    const result = await testGeminiConnection();
+                    const result = await testAIConnection();
                     setAiTestResult(result);
                     setTestingAI(false);
                   }}
@@ -672,7 +672,7 @@ export default function App() {
                     <Sparkles size={16} className="text-orange-500" />
                   )}
                   <span className="text-xs font-black uppercase tracking-widest">
-                    {testingAI ? 'Gemini テスト中...' : 'Gemini AI 接続テスト'}
+                    {testingAI ? 'Claude テスト中...' : 'Claude AI 接続テスト'}
                   </span>
                 </button>
                 {aiTestResult && (

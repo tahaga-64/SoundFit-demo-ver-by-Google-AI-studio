@@ -3,27 +3,35 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { GoogleGenAI } from '@google/genai';
+import Anthropic from '@anthropic-ai/sdk';
 import { type MusicProfile, type CompatibilityResult } from './types';
 
-let ai: GoogleGenAI | null = null;
-function getAI(): GoogleGenAI {
-  if (!ai) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('GEMINI_API_KEY が設定されていません');
-    ai = new GoogleGenAI({ apiKey });
+const MODEL = 'claude-haiku-4-5-20251001';
+
+let client: Anthropic | null = null;
+function getClient(): Anthropic {
+  if (!client) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY が設定されていません');
+    client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
   }
-  return ai;
+  return client;
 }
 
-export async function testGeminiConnection(): Promise<{ ok: boolean; message: string }> {
+async function ask(prompt: string): Promise<string> {
+  const msg = await getClient().messages.create({
+    model: MODEL,
+    max_tokens: 512,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const block = msg.content[0];
+  return block.type === 'text' ? block.text : '';
+}
+
+export async function testAIConnection(): Promise<{ ok: boolean; message: string }> {
   try {
-    const response = await getAI().models.generateContent({
-      model: 'gemini-2.0-flash-lite',
-      contents: '「動作確認OK」とだけ日本語で返答してください。',
-    });
-    const text = response.text?.trim() ?? '';
-    return { ok: true, message: text || '応答あり（空レスポンス）' };
+    const text = await ask('「動作確認OK」とだけ日本語で返答してください。');
+    return { ok: true, message: text.trim() || '応答あり（空レスポンス）' };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : String(e) };
   }
@@ -51,14 +59,6 @@ export async function analyzeCompatibility(
   "reasons": ["共通点や相性の理由1", "共通点や相性の理由2"]
 }`;
 
-  const response = await getAI().models.generateContent({
-    model: 'gemini-2.0-flash',
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
-    },
-  });
-
-  const text = response.text;
+  const text = await ask(prompt);
   return JSON.parse(text) as CompatibilityResult;
 }
