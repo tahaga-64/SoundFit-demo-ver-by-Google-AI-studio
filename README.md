@@ -15,6 +15,10 @@ View your app in AI Studio: https://ai.studio/apps/8e5c5227-04d6-4fd1-a4fb-37ac3
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Set keys in `.env.local`:
+   - `GEMINI_API_KEY`
+   - `ANTHROPIC_API_KEY` (used only on server side proxy)
+3. Run the app and API proxy together:
    `npm run dev`
+
+The browser now calls `/api/anthropic/messages`, and the server injects `ANTHROPIC_API_KEY` so the key is never exposed to client-side code.
