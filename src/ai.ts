@@ -1,0 +1,43 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { GoogleGenAI } from '@google/genai';
+import { type MusicProfile, type CompatibilityResult } from './types';
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+export async function analyzeCompatibility(
+  myProfile: MusicProfile,
+  otherProfile: MusicProfile
+): Promise<CompatibilityResult> {
+  const prompt = `あなたは音楽の相性を分析するAIアシスタントです。
+以下の2人の音楽プロフィールを分析し、相性を日本語で回答してください。
+
+ユーザー1 (${myProfile.name}):
+- 好きなアーティスト: ${myProfile.favoriteArtists.join(', ')}
+- ジャンル: ${myProfile.genres.join(', ')}
+
+ユーザー2 (${otherProfile.name}):
+- 好きなアーティスト: ${otherProfile.favoriteArtists.join(', ')}
+- ジャンル: ${otherProfile.genres.join(', ')}
+
+以下のJSON形式のみで回答してください（余計なテキストなし）:
+{
+  "score": 相性スコア(0から100の整数),
+  "insight": "相性についての一言コメント（30文字以内）",
+  "reasons": ["共通点や相性の理由1", "共通点や相性の理由2"]
+}`;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash',
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+    },
+  });
+
+  const text = response.text;
+  return JSON.parse(text) as CompatibilityResult;
+}

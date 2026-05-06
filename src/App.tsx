@@ -3,12 +3,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { analyzeCompatibility, type CompatibilityResult } from './gemini';
-import { MY_PROFILE } from './types';
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { Heart, X, Music, User, MessageCircle, Info, Sparkles, AudioLines, Send, ChevronLeft, Bell, Settings } from 'lucide-react';
-import { DUMMY_PROFILES, type MusicProfile, type Message } from './types';
+import { DUMMY_PROFILES, type MusicProfile, type Message, type CompatibilityResult } from './types';
+import { analyzeCompatibility } from './ai';
+
+const MY_PROFILE: MusicProfile = {
+  id: 'me',
+  name: 'Kaito',
+  age: 25,
+  bio: '',
+  avatar: '',
+  favoriteArtists: ['Radiohead', 'Tame Impala', 'Bonobo', 'Massive Attack'],
+  genres: ['Indie Rock', 'Electronic', 'Ambient'],
+};
 
 // スプラッシュ画面コンポーネント
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
@@ -148,11 +157,15 @@ function ChatRoom({ profile, onBack }: { profile: MusicProfile; onBack: () => vo
   );
 }
 
-function SwipeCard({ 
-  profile, 
-  onSwipe 
-}: { 
-  profile: MusicProfile; 
+function SwipeCard({
+  profile,
+  aiResult,
+  isLoadingAI,
+  onSwipe
+}: {
+  profile: MusicProfile;
+  aiResult?: CompatibilityResult;
+  isLoadingAI: boolean;
   onSwipe: (dir: 'left' | 'right') => void;
   key?: string;
 }) {
@@ -220,15 +233,48 @@ function SwipeCard({
             <span className="text-sm font-mono text-neutral-500">/{profile.age}</span>
           </div>
           
-          {/* AI Insight Box */}
-          <div className="bg-orange-500/10 border border-orange-500/20 p-3 rounded-xl relative overflow-hidden">
+          {/* AI相性分析エリア */}
+          <div className="bg-orange-500/10 border border-orange-500/20 p-3 rounded-xl relative overflow-hidden min-h-[72px] flex items-center">
             <div className="absolute top-0 right-0 p-1">
               <Sparkles size={12} className="text-orange-500/30" />
             </div>
-            <p className="text-[10px] text-orange-500 font-black uppercase tracking-widest mb-1 italic">AI Insight</p>
-            <p className="text-[11px] text-white/70 leading-relaxed italic line-clamp-2">
-              "{profile.aiInsight}"
-            </p>
+            {isLoadingAI ? (
+              <div className="flex items-center gap-2 text-orange-400 text-sm">
+                <div className="w-4 h-4 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
+                <span>AI が相性を分析中...</span>
+              </div>
+            ) : aiResult ? (
+              <div className="space-y-2 w-full">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl font-bold text-orange-400">
+                    {aiResult.score}%
+                  </span>
+                  <span className="text-gray-400 text-sm">AI相性スコア</span>
+                </div>
+                <p className="text-gray-300 text-sm leading-relaxed">
+                  ✨ {aiResult.insight}
+                </p>
+                {aiResult.reasons.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {aiResult.reasons.map((r, i) => (
+                      <span
+                        key={i}
+                        className="text-xs bg-orange-500/20 text-orange-300 px-2 py-0.5 rounded-full"
+                      >
+                        {r}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div>
+                <p className="text-[10px] text-orange-500 font-black uppercase tracking-widest mb-1 italic">AI Insight</p>
+                <p className="text-[11px] text-white/70 leading-relaxed italic line-clamp-2">
+                  "{profile.aiInsight}"
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="space-y-3">
@@ -276,27 +322,46 @@ function SwipeCard({
 
 export default function App() {
   const [loading, setLoading] = useState(true);
-  const [profiles, setProfiles] = useState(DUMMY_PROFILES);
-  const [history, setHistory] = useState<string[]>([]);
+  const [profiles] = useState(DUMMY_PROFILES);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [activeTab, setActiveTab] = useState<'discover' | 'matches' | 'profile'>('discover');
   const [isMatch, setIsMatch] = useState<MusicProfile | null>(null);
   const [activeChat, setActiveChat] = useState<MusicProfile | null>(null);
+  const [aiResults, setAiResults] = useState<Record<string, CompatibilityResult>>({});
+  const [loadingAI, setLoadingAI] = useState<Record<string, boolean>>({});
 
-  const currentProfile = useMemo(() => {
-    return profiles.find(p => !history.includes(p.id));
-  }, [profiles, history]);
+  const fetchCompatibility = async (profile: MusicProfile) => {
+    if (aiResults[profile.id] || loadingAI[profile.id]) return;
+
+    setLoadingAI(prev => ({ ...prev, [profile.id]: true }));
+    try {
+      const result = await analyzeCompatibility(MY_PROFILE, profile);
+      setAiResults(prev => ({ ...prev, [profile.id]: result }));
+    } catch (e) {
+      console.error('AI分析エラー:', e);
+    } finally {
+      setLoadingAI(prev => ({ ...prev, [profile.id]: false }));
+    }
+  };
+
+  useEffect(() => {
+    const currentProfile = profiles[currentIndex];
+    if (currentProfile) {
+      fetchCompatibility(currentProfile);
+    }
+  }, [currentIndex]);
 
   const handleSwipe = (direction: 'left' | 'right') => {
+    const currentProfile = profiles[currentIndex];
     if (!currentProfile) return;
 
     if (direction === 'right') {
-      // Simulate match logic
       if (Math.random() > 0.4) {
         setIsMatch(currentProfile);
       }
     }
 
-    setHistory(prev => [...prev, currentProfile.id]);
+    setCurrentIndex(prev => prev + 1);
   };
 
   return (
@@ -339,14 +404,16 @@ export default function App() {
         {activeTab === 'discover' && (
           <div className="relative h-full flex items-center justify-center">
             <AnimatePresence mode="popLayout">
-              {currentProfile ? (
-                <SwipeCard 
-                  key={currentProfile.id}
-                  profile={currentProfile} 
-                  onSwipe={handleSwipe} 
+              {profiles[currentIndex] ? (
+                <SwipeCard
+                  key={profiles[currentIndex].id}
+                  profile={profiles[currentIndex]}
+                  aiResult={aiResults[profiles[currentIndex]?.id]}
+                  isLoadingAI={loadingAI[profiles[currentIndex]?.id] ?? false}
+                  onSwipe={handleSwipe}
                 />
               ) : (
-                <motion.div 
+                <motion.div
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   className="flex flex-col items-center gap-4 text-center px-8"
@@ -359,8 +426,8 @@ export default function App() {
                   </div>
                   <h3 className="text-2xl font-bold text-white italic tracking-tight">周りに音楽仲間がいません！</h3>
                   <p className="text-sm opacity-60 max-w-[200px]">検索範囲を広げるか、後でもう一度チェックしてください。</p>
-                  <button 
-                    onClick={() => setHistory([])}
+                  <button
+                    onClick={() => setCurrentIndex(0)}
                     className="mt-6 px-8 py-3 bg-gradient-to-r from-orange-500 to-rose-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-xl shadow-orange-500/20"
                   >
                     リストをリセット
@@ -370,7 +437,7 @@ export default function App() {
             </AnimatePresence>
 
             {/* Floating Action Buttons */}
-            {currentProfile && (
+            {profiles[currentIndex] && (
               <div className="absolute bottom-12 left-0 right-0 flex justify-center gap-6 z-40">
                 <button 
                   onClick={() => handleSwipe('left')}

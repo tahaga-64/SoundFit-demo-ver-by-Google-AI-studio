@@ -3,6 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export interface CompatibilityResult {
+  score: number;
+  insight: string;
+  reasons: string[];
+}
+
 export interface Message {
   id: string;
   senderId: string;
@@ -78,9 +84,3 @@ export const DUMMY_PROFILES: MusicProfile[] = [
     aiInsight: "即興演奏の緊張感を好む、ストイックなジャズ好きコンビ。ビル・エヴァンスの繊細なタッチについての共通言語を持っています。"
   }
 ];
-
-// 自分のプロフィール（後でユーザー設定に移行）
-export const MY_PROFILE: Pick<MusicProfile, 'genres' | 'favoriteArtists'> = {
-  genres: ['J-Pop', 'City Pop', 'metal'],
-  favoriteArtists: ['DIR EN GREY', '米津玄師', 'Ado'],
-};
