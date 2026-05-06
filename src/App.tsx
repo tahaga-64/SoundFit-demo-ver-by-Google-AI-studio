@@ -104,7 +104,7 @@ function ChatRoom({ profile, onBack }: { profile: MusicProfile; onBack: () => vo
       transition={{ type: 'spring', damping: 25, stiffness: 200 }}
       className="fixed inset-0 z-[110] bg-[#0c0f14] flex flex-col"
     >
-      <header className="p-4 flex items-center gap-4 bg-black/40 backdrop-blur-xl border-b border-white/5">
+      <header className="p-4 pt-[calc(1rem+env(safe-area-inset-top))] flex items-center gap-4 bg-black/40 backdrop-blur-xl border-b border-white/5">
         <button onClick={onBack} className="p-2 hover:bg-white/5 rounded-full">
           <ChevronLeft size={24} />
         </button>
@@ -425,7 +425,7 @@ export default function App() {
       </div>
 
       {/* Header */}
-      <header className="relative z-50 p-6 pt-12 flex justify-between items-center bg-black/20 backdrop-blur-sm border-b border-white/5">
+      <header className="relative z-50 p-6 pt-[calc(3rem+env(safe-area-inset-top))] flex justify-between items-center bg-black/20 backdrop-blur-sm border-b border-white/5">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 bg-gradient-to-tr from-orange-500 to-rose-600 rounded-lg flex items-center justify-center">
             <Music className="text-white" size={18} />
@@ -696,7 +696,7 @@ export default function App() {
       </main>
 
       {/* Bottom Nav */}
-      <nav className="relative z-50 bg-[#0c0f14]/80 backdrop-blur-2xl border-t border-white/5 p-4 pb-10">
+      <nav className="relative z-50 bg-[#0c0f14]/80 backdrop-blur-2xl border-t border-white/5 p-4 pb-[calc(2.5rem+env(safe-area-inset-bottom))]">
         <div className="max-w-md mx-auto flex justify-between items-center">
           <button 
             onClick={() => setActiveTab('discover')}
