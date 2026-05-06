@@ -6,7 +6,7 @@
 import { type MusicProfile } from './types';
 
 const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID ?? '';
-const REDIRECT_URI = window.location.href.split('?')[0].split('#')[0];
+const REDIRECT_URI = window.location.origin;
 const SCOPES = 'user-top-read user-read-currently-playing user-read-private';
 const TOKEN_KEY = 'spotify_access_token';
 const VERIFIER_KEY = 'spotify_code_verifier';
