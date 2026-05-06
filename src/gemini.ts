@@ -1,7 +1,8 @@
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenAI } from '@google/genai'
 import type { MusicProfile } from './types'
 
-const ai = new GoogleGenerativeAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY })
+const apiKey = ((import.meta as unknown) as { env: { VITE_GEMINI_API_KEY: string } }).env.VITE_GEMINI_API_KEY
+const ai = new GoogleGenAI({ apiKey })
 
 export interface CompatibilityResult {
     score: number      // 0〜100
@@ -33,15 +34,15 @@ export async function analyzeCompatibility(
 }
 `
 
-    const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' })
-    const response = await model.generateContent({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.0-flash',
+        contents: [{ text: prompt }],
+        config: {
             responseMimeType: 'application/json',
         },
     })
 
-    const text = response.response.text() ?? '{}'
+    const text = response.text ?? '{}'
     const result = JSON.parse(text)
 
     return {
