@@ -8,8 +8,9 @@ import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/re
 import { Heart, X, Music, User, MessageCircle, Info, Sparkles, AudioLines, Send, ChevronLeft, Bell, Settings } from 'lucide-react';
 import { DUMMY_PROFILES, type MusicProfile, type Message, type CompatibilityResult } from './types';
 import { analyzeCompatibility } from './ai';
+import { loginWithSpotify, handleCallback, getStoredToken, clearToken, fetchMySpotifyProfile } from './spotify';
 
-const MY_PROFILE: MusicProfile = {
+const DEFAULT_PROFILE: MusicProfile = {
   id: 'me',
   name: 'Kaito',
   age: 25,
@@ -332,6 +333,37 @@ export default function App() {
   const [aiResults, setAiResults] = useState<Record<string, CompatibilityResult>>({});
   const [loadingAI, setLoadingAI] = useState<Record<string, boolean>>({});
   const fetchedIds = useRef<Set<string>>(new Set());
+  const [myProfile, setMyProfile] = useState<MusicProfile>(DEFAULT_PROFILE);
+  const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
+  const [loadingSpotify, setLoadingSpotify] = useState(false);
+
+  // Spotify 初期化: コールバックコードの処理 or 保存済みトークンの利用
+  useEffect(() => {
+    async function init() {
+      const code = new URLSearchParams(window.location.search).get('code');
+      let token: string | null = null;
+      if (code) {
+        token = await handleCallback();
+      } else {
+        token = getStoredToken();
+      }
+      if (token) {
+        setSpotifyToken(token);
+        setLoadingSpotify(true);
+        try {
+          const data = await fetchMySpotifyProfile(token);
+          setMyProfile(prev => ({ ...prev, ...data }));
+        } catch {
+          // トークン期限切れ等
+          clearToken();
+          setSpotifyToken(null);
+        } finally {
+          setLoadingSpotify(false);
+        }
+      }
+    }
+    init();
+  }, []);
 
   useEffect(() => {
     const currentProfile = profiles[currentIndex];
@@ -342,13 +374,13 @@ export default function App() {
 
     let cancelled = false;
     setLoadingAI(prev => ({ ...prev, [id]: true }));
-    analyzeCompatibility(MY_PROFILE, currentProfile)
+    analyzeCompatibility(myProfile, currentProfile)
       .then(result => { if (!cancelled) setAiResults(prev => ({ ...prev, [id]: result })); })
       .catch(e => console.error('AI分析エラー:', e))
       .finally(() => { if (!cancelled) setLoadingAI(prev => ({ ...prev, [id]: false })); });
 
     return () => { cancelled = true; };
-  }, [currentIndex, profiles]);
+  }, [currentIndex, profiles, myProfile]);
 
   const handleSwipe = (direction: 'left' | 'right') => {
     const currentProfile = profiles[currentIndex];
@@ -513,19 +545,25 @@ export default function App() {
           <div className="p-6 pb-24 overflow-y-auto h-full scrollbar-hide">
             <div className="flex flex-col items-center mb-10">
               <div className="relative mb-6">
-                <motion.div 
+                <motion.div
                   animate={{ rotate: 360 }}
                   transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
                   className="absolute inset-[-10px] rounded-full border border-dashed border-orange-500/30"
                 />
                 <div className="w-32 h-32 rounded-full border-4 border-orange-500 p-1 relative z-10 shadow-2xl shadow-orange-500/20">
-                  <img src="https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=400&q=80" className="w-full h-full rounded-full object-cover" referrerPolicy="no-referrer" />
+                  {myProfile.avatar ? (
+                    <img src={myProfile.avatar} className="w-full h-full rounded-full object-cover" referrerPolicy="no-referrer" />
+                  ) : (
+                    <div className="w-full h-full rounded-full bg-white/10 flex items-center justify-center">
+                      <User size={40} className="text-white/40" />
+                    </div>
+                  )}
                 </div>
                 <div className="absolute bottom-0 right-0 bg-orange-500 p-2 rounded-full shadow-xl border-4 border-[#0a0502] z-20">
                   <Music size={16} className="text-white" />
                 </div>
               </div>
-              <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase mb-1">Kaito</h3>
+              <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase mb-1">{myProfile.name}</h3>
               <div className="flex items-center gap-2 bg-white/5 px-4 py-1.5 rounded-full border border-white/10">
                 <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
                 <span className="text-[10px] font-black tracking-widest opacity-60 uppercase">Standard Rank</span>
@@ -550,16 +588,23 @@ export default function App() {
                   <Music size={14} className="opacity-20" />
                 </div>
                 <div className="space-y-3">
-                  {['Radiohead', 'Tame Impala', 'Bonobo', 'Massive Attack'].map((a, i) => (
+                  {myProfile.favoriteArtists.map((a, i) => (
                     <div key={a} className="flex items-center justify-between group cursor-pointer">
                       <div className="flex items-center gap-3">
-                        <span className="text-xs font-mono opacity-20">0{i+1}</span>
+                        <span className="text-xs font-mono opacity-20">{String(i + 1).padStart(2, '0')}</span>
                         <span className="text-sm font-bold text-white/80 group-hover:text-orange-500 transition-colors uppercase italic">{a}</span>
                       </div>
                       <div className="w-8 h-[2px] bg-white/5 group-hover:bg-orange-500/50 transition-colors" />
                     </div>
                   ))}
                 </div>
+                {myProfile.genres.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-4 pt-4 border-t border-white/5">
+                    {myProfile.genres.map(g => (
+                      <span key={g} className="text-[10px] bg-white/5 text-white/50 px-2 py-0.5 rounded-full border border-white/5">{g}</span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Followers Definition Section */}
@@ -573,10 +618,35 @@ export default function App() {
                 </p>
               </div>
               
-              <button className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-3 hover:bg-white/10 transition-all group">
-                <AudioLines size={18} className="text-orange-500 group-hover:scale-110 transition-transform" />
-                <span className="text-xs font-black uppercase tracking-widest">Connect Spotify</span>
-              </button>
+              {spotifyToken ? (
+                <div className="space-y-3">
+                  {loadingSpotify ? (
+                    <div className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-3">
+                      <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
+                      <span className="text-xs font-black uppercase tracking-widest text-green-400">Spotify から取得中...</span>
+                    </div>
+                  ) : (
+                    <div className="w-full py-4 bg-green-500/10 border border-green-500/30 rounded-2xl flex items-center justify-center gap-3">
+                      <AudioLines size={18} className="text-green-400" />
+                      <span className="text-xs font-black uppercase tracking-widest text-green-400">Spotify 接続済み</span>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => { clearToken(); setSpotifyToken(null); setMyProfile(DEFAULT_PROFILE); }}
+                    className="w-full py-3 bg-white/5 border border-white/10 rounded-2xl text-xs font-black uppercase tracking-widest text-white/40 hover:bg-white/10 transition-all"
+                  >
+                    ログアウト
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={loginWithSpotify}
+                  className="w-full py-4 bg-[#1DB954]/10 border border-[#1DB954]/30 rounded-2xl flex items-center justify-center gap-3 hover:bg-[#1DB954]/20 transition-all group"
+                >
+                  <AudioLines size={18} className="text-[#1DB954] group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-black uppercase tracking-widest text-[#1DB954]">Spotify でログイン</span>
+                </button>
+              )}
             </div>
           </div>
         )}
