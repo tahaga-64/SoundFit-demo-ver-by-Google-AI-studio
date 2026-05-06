@@ -3,29 +3,24 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import { type MusicProfile, type CompatibilityResult } from './types';
 
 const MODEL = 'claude-haiku-4-5-20251001';
 
-let client: Anthropic | null = null;
-function getClient(): Anthropic {
-  if (!client) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error('ANTHROPIC_API_KEY が設定されていません');
-    client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
-  }
-  return client;
-}
-
 async function ask(prompt: string): Promise<string> {
-  const msg = await getClient().messages.create({
-    model: MODEL,
-    max_tokens: 512,
-    messages: [{ role: 'user', content: prompt }],
+  const res = await fetch('/api/anthropic/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, model: MODEL, max_tokens: 512 }),
   });
-  const block = msg.content[0];
-  return block.type === 'text' ? block.text : '';
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error ?? `AI API error: ${res.status}`);
+  }
+
+  const data = (await res.json()) as { text?: string };
+  return (data.text ?? '').trim();
 }
 
 function parseJSON<T>(text: string): T {
