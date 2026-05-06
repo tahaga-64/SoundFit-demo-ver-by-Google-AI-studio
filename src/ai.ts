@@ -16,6 +16,19 @@ function getAI(): GoogleGenAI {
   return ai;
 }
 
+export async function testGeminiConnection(): Promise<{ ok: boolean; message: string }> {
+  try {
+    const response = await getAI().models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: '「動作確認OK」とだけ日本語で返答してください。',
+    });
+    const text = response.text?.trim() ?? '';
+    return { ok: true, message: text || '応答あり（空レスポンス）' };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function analyzeCompatibility(
   myProfile: MusicProfile,
   otherProfile: MusicProfile

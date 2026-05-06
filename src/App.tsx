@@ -7,7 +7,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { Heart, X, Music, User, MessageCircle, Info, Sparkles, AudioLines, Send, ChevronLeft, Bell, Settings } from 'lucide-react';
 import { DUMMY_PROFILES, type MusicProfile, type Message, type CompatibilityResult } from './types';
-import { analyzeCompatibility } from './ai';
+import { analyzeCompatibility, testGeminiConnection } from './ai';
 import { loginWithSpotify, handleCallback, getStoredToken, clearToken, fetchMySpotifyProfile } from './spotify';
 
 const DEFAULT_PROFILE: MusicProfile = {
@@ -336,6 +336,8 @@ export default function App() {
   const [myProfile, setMyProfile] = useState<MusicProfile>(DEFAULT_PROFILE);
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
   const [loadingSpotify, setLoadingSpotify] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [testingAI, setTestingAI] = useState(false);
 
   // Spotify 初期化: コールバックコードの処理 or 保存済みトークンの利用
   useEffect(() => {
@@ -650,6 +652,36 @@ export default function App() {
                   <span className="text-xs font-black uppercase tracking-widest text-[#1DB954]">Spotify でログイン</span>
                 </button>
               )}
+
+              {/* Gemini AI 接続テスト */}
+              <div className="space-y-2">
+                <button
+                  onClick={async () => {
+                    setTestingAI(true);
+                    setAiTestResult(null);
+                    const result = await testGeminiConnection();
+                    setAiTestResult(result);
+                    setTestingAI(false);
+                  }}
+                  disabled={testingAI}
+                  className="w-full py-3 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-3 hover:bg-white/10 transition-all disabled:opacity-50"
+                >
+                  {testingAI ? (
+                    <div className="w-4 h-4 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Sparkles size={16} className="text-orange-500" />
+                  )}
+                  <span className="text-xs font-black uppercase tracking-widest">
+                    {testingAI ? 'Gemini テスト中...' : 'Gemini AI 接続テスト'}
+                  </span>
+                </button>
+                {aiTestResult && (
+                  <div className={`p-3 rounded-xl text-xs border ${aiTestResult.ok ? 'bg-green-500/10 border-green-500/30 text-green-300' : 'bg-red-500/10 border-red-500/30 text-red-300'}`}>
+                    <span className="font-black mr-2">{aiTestResult.ok ? '✓ 成功' : '✗ エラー'}</span>
+                    {aiTestResult.message}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
