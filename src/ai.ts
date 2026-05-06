@@ -28,6 +28,11 @@ async function ask(prompt: string): Promise<string> {
   return block.type === 'text' ? block.text : '';
 }
 
+function parseJSON<T>(text: string): T {
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  return JSON.parse(cleaned) as T;
+}
+
 export async function testAIConnection(): Promise<{ ok: boolean; message: string }> {
   try {
     const text = await ask('「動作確認OK」とだけ日本語で返答してください。');
@@ -60,7 +65,7 @@ export async function suggestSong(
 }`;
 
   const text = await ask(prompt);
-  return JSON.parse(text) as { title: string; artist: string; reason: string };
+  return parseJSON<{ title: string; artist: string; reason: string }>(text);
 }
 
 export async function analyzeCompatibility(
@@ -86,5 +91,5 @@ export async function analyzeCompatibility(
 }`;
 
   const text = await ask(prompt);
-  return JSON.parse(text) as CompatibilityResult;
+  return parseJSON<CompatibilityResult>(text);
 }

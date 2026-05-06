@@ -340,6 +340,7 @@ export default function App() {
   const [testingAI, setTestingAI] = useState(false);
   const [songSuggestion, setSongSuggestion] = useState<{ title: string; artist: string; reason: string } | null>(null);
   const [loadingSong, setLoadingSong] = useState(false);
+  const [songError, setSongError] = useState(false);
 
   // Spotify 初期化: コールバックコードの処理 or 保存済みトークンの利用
   useEffect(() => {
@@ -396,10 +397,11 @@ export default function App() {
     if (direction === 'right' && Math.random() > 0.4) {
       setIsMatch(currentProfile);
       setSongSuggestion(null);
+      setSongError(false);
       setLoadingSong(true);
       suggestSong(myProfile, currentProfile)
         .then(s => setSongSuggestion(s))
-        .catch(e => console.error('曲提案エラー:', e))
+        .catch(e => { console.error('曲提案エラー:', e); setSongError(true); })
         .finally(() => setLoadingSong(false));
     }
 
@@ -769,6 +771,10 @@ export default function App() {
                   <div className="w-4 h-4 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
                   <span className="text-sm text-orange-400">2人のための曲を選曲中...</span>
                 </div>
+              ) : songError ? (
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 text-center">
+                  <span className="text-white/40 text-xs">曲の取得に失敗しました</span>
+                </div>
               ) : songSuggestion ? (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
@@ -795,7 +801,7 @@ export default function App() {
                 ジャムを開始
               </button>
               <button
-                onClick={() => { setIsMatch(null); setSongSuggestion(null); }}
+                onClick={() => { setIsMatch(null); setSongSuggestion(null); setSongError(false); }}
                 className="w-full py-5 bg-white/5 text-white/50 rounded-full font-black uppercase tracking-[0.2em] hover:bg-white/10 transition-all active:scale-95"
               >
                 検索を続ける
