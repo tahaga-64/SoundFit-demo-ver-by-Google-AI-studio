@@ -6,7 +6,15 @@
 import { GoogleGenAI } from '@google/genai';
 import { type MusicProfile, type CompatibilityResult } from './types';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let ai: GoogleGenAI | null = null;
+function getAI(): GoogleGenAI {
+  if (!ai) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error('GEMINI_API_KEY が設定されていません');
+    ai = new GoogleGenAI({ apiKey });
+  }
+  return ai;
+}
 
 export async function analyzeCompatibility(
   myProfile: MusicProfile,
@@ -30,7 +38,7 @@ export async function analyzeCompatibility(
   "reasons": ["共通点や相性の理由1", "共通点や相性の理由2"]
 }`;
 
-  const response = await ai.models.generateContent({
+  const response = await getAI().models.generateContent({
     model: 'gemini-2.0-flash',
     contents: prompt,
     config: {
