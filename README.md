@@ -1,20 +1,79 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+SoundFit
 
-# Run and deploy your AI Studio app
+“音楽でつながる、新しい発見の場所”
 
-This contains everything you need to run your app locally.
+SoundFitは、特定の音楽・アーティストが好きな人同士をつなぎ、
+新しい音楽との出会いを生み出すアプリです。
 
-View your app in AI Studio: https://ai.studio/apps/8e5c5227-04d6-4fd1-a4fb-37ac3b62ff4e
+ストリーミングサービスのように「聴くだけ」で終わらず、
+SNSのように「人とつながる」ことで、
+音楽体験をもっと深く、もっと広くします。
 
-## Run Locally
+⸻
 
-**Prerequisites:**  Node.js
+コンセプト
 
+音楽の好みは、最高の共通言語。
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+SoundFitでは、同じ音楽が好きな人と自然につながり、
+そこからまだ知らない音楽や価値観に出会えます。
+
+* 好きな曲でつながる
+* 人を通して新しい音楽を知る
+* “発見”が連鎖する体験を作る
+
+⸻
+
+主な機能（予定）
+
+* 好きな楽曲・アーティストの登録
+* 音楽の好みが近いユーザーのレコメンド
+* 楽曲ごとのコミュニティ・コメント
+* リアルタイムの「今聴いてる曲」共有
+* 新しい音楽の発見フィード
+
+⸻
+
+ なぜ作るのか
+
+今の音楽体験は、
+
+* ストリーミング → 「一人で聴く」
+* SNS → 「音楽が主役じゃない」
+
+という分断がある。
+
+SoundFitはその間を埋めて、
+“音楽を軸に人とつながる体験”を作ります。
+
+⸻
+
+ 技術スタック
+
+* Frontend: typescript
+* Backend: Firebase / Supabase
+* Auth: Firebase Auth / Auth0
+* Hosting: Vercel
+* Design: Figma
+
+⸻
+
+ 開発状況について
+
+ MVP開発中
+今後、基本機能の実装とユーザーテストを予定しています。
+
+⸻
+
+ 今後の展望
+
+* プレイリスト共有機能
+* イベント・ライブ連携
+* アーティストとの接点づくり
+* AIによるレコメンド強化
+
+⸻
+
+ License
+
+MIT
