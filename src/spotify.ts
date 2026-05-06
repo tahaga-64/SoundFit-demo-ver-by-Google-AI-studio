@@ -44,32 +44,39 @@ export async function handleCallback(): Promise<string | null> {
   const code = new URLSearchParams(window.location.search).get('code');
   if (!code) return null;
 
-  const verifier = sessionStorage.getItem(VERIFIER_KEY);
-  if (!verifier) return null;
-
-  const res = await fetch('https://accounts.spotify.com/api/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: REDIRECT_URI,
-      client_id: CLIENT_ID,
-      code_verifier: verifier,
-    }),
-  });
-  if (!res.ok) return null;
-
-  const { access_token: token } = await res.json();
-  sessionStorage.setItem(TOKEN_KEY, token);
-  sessionStorage.removeItem(VERIFIER_KEY);
-
+  // URL からコードを先に除去（StrictMode による2重実行対策）
   const url = new URL(window.location.href);
   url.searchParams.delete('code');
   url.searchParams.delete('state');
   window.history.replaceState({}, '', url.toString());
 
-  return token as string;
+  const verifier = sessionStorage.getItem(VERIFIER_KEY);
+  if (!verifier) return null;
+  sessionStorage.removeItem(VERIFIER_KEY);
+
+  try {
+    const res = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: REDIRECT_URI,
+        client_id: CLIENT_ID,
+        code_verifier: verifier,
+      }),
+    });
+    if (!res.ok) {
+      console.error('Spotify token exchange failed:', res.status, await res.text());
+      return null;
+    }
+    const { access_token: token } = await res.json();
+    sessionStorage.setItem(TOKEN_KEY, token);
+    return token as string;
+  } catch (e) {
+    console.error('Spotify token exchange error:', e);
+    return null;
+  }
 }
 
 export function getStoredToken(): string | null {

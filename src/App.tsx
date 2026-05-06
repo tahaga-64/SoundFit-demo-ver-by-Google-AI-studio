@@ -340,26 +340,29 @@ export default function App() {
   // Spotify 初期化: コールバックコードの処理 or 保存済みトークンの利用
   useEffect(() => {
     async function init() {
-      const code = new URLSearchParams(window.location.search).get('code');
-      let token: string | null = null;
-      if (code) {
-        token = await handleCallback();
-      } else {
-        token = getStoredToken();
-      }
-      if (token) {
+      try {
+        const code = new URLSearchParams(window.location.search).get('code');
+        let token: string | null = null;
+        if (code) {
+          token = await handleCallback();
+        } else {
+          token = getStoredToken();
+        }
+        if (!token) return;
         setSpotifyToken(token);
         setLoadingSpotify(true);
         try {
           const data = await fetchMySpotifyProfile(token);
           setMyProfile(prev => ({ ...prev, ...data }));
-        } catch {
-          // トークン期限切れ等
+        } catch (e) {
+          console.error('Spotify プロフィール取得エラー:', e);
           clearToken();
           setSpotifyToken(null);
         } finally {
           setLoadingSpotify(false);
         }
+      } catch (e) {
+        console.error('Spotify 初期化エラー:', e);
       }
     }
     init();
