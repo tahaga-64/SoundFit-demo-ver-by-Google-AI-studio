@@ -37,6 +37,32 @@ export async function testAIConnection(): Promise<{ ok: boolean; message: string
   }
 }
 
+export async function suggestSong(
+  myProfile: MusicProfile,
+  otherProfile: MusicProfile
+): Promise<{ title: string; artist: string; reason: string }> {
+  const prompt = `あなたは音楽の専門家です。
+以下の2人の音楽の好みを分析し、2人が絶対に好きになる曲を1曲だけ提案してください。
+
+ユーザー1 (${myProfile.name}):
+- 好きなアーティスト: ${myProfile.favoriteArtists.join(', ')}
+- ジャンル: ${myProfile.genres.join(', ')}
+
+ユーザー2 (${otherProfile.name}):
+- 好きなアーティスト: ${otherProfile.favoriteArtists.join(', ')}
+- ジャンル: ${otherProfile.genres.join(', ')}
+
+以下のJSON形式のみで回答してください（余計なテキストなし）:
+{
+  "title": "曲名",
+  "artist": "アーティスト名",
+  "reason": "この曲を選んだ理由（30文字以内）"
+}`;
+
+  const text = await ask(prompt);
+  return JSON.parse(text) as { title: string; artist: string; reason: string };
+}
+
 export async function analyzeCompatibility(
   myProfile: MusicProfile,
   otherProfile: MusicProfile

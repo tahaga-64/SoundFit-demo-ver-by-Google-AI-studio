@@ -7,7 +7,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { Heart, X, Music, User, MessageCircle, Info, Sparkles, AudioLines, Send, ChevronLeft, Bell, Settings } from 'lucide-react';
 import { DUMMY_PROFILES, type MusicProfile, type Message, type CompatibilityResult } from './types';
-import { analyzeCompatibility, testAIConnection } from './ai';
+import { analyzeCompatibility, testAIConnection, suggestSong } from './ai';
 import { loginWithSpotify, handleCallback, getStoredToken, clearToken, fetchMySpotifyProfile } from './spotify';
 
 const DEFAULT_PROFILE: MusicProfile = {
@@ -338,6 +338,8 @@ export default function App() {
   const [loadingSpotify, setLoadingSpotify] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [testingAI, setTestingAI] = useState(false);
+  const [songSuggestion, setSongSuggestion] = useState<{ title: string; artist: string; reason: string } | null>(null);
+  const [loadingSong, setLoadingSong] = useState(false);
 
   // Spotify 初期化: コールバックコードの処理 or 保存済みトークンの利用
   useEffect(() => {
@@ -391,10 +393,14 @@ export default function App() {
     const currentProfile = profiles[currentIndex];
     if (!currentProfile) return;
 
-    if (direction === 'right') {
-      if (Math.random() > 0.4) {
-        setIsMatch(currentProfile);
-      }
+    if (direction === 'right' && Math.random() > 0.4) {
+      setIsMatch(currentProfile);
+      setSongSuggestion(null);
+      setLoadingSong(true);
+      suggestSong(myProfile, currentProfile)
+        .then(s => setSongSuggestion(s))
+        .catch(e => console.error('曲提案エラー:', e))
+        .finally(() => setLoadingSong(false));
     }
 
     setCurrentIndex(prev => prev + 1);
@@ -751,23 +757,45 @@ export default function App() {
             </motion.div>
             
             <h2 className="text-6xl font-black text-white italic uppercase tracking-tighter mb-4 italic leading-none">JAM!</h2>
-            <p className="text-xl mb-12 max-w-sm text-white/80 leading-relaxed">
+            <p className="text-xl mb-6 max-w-sm text-white/80 leading-relaxed">
               <span className="text-orange-500 font-bold">{isMatch.name}</span>さんも
               <span className="font-bold underline decoration-orange-500 decoration-4 underline-offset-4">{isMatch.genres[0]}</span>が好きです！
             </p>
-            
+
+            {/* AI 曲提案エリア */}
+            <div className="w-full max-w-xs mb-8 relative z-10">
+              {loadingSong ? (
+                <div className="flex items-center justify-center gap-2 bg-white/5 border border-white/10 rounded-2xl p-4">
+                  <div className="w-4 h-4 border-2 border-orange-400 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-sm text-orange-400">2人のための曲を選曲中...</span>
+                </div>
+              ) : songSuggestion ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 text-left"
+                >
+                  <p className="text-[10px] text-orange-400 font-black uppercase tracking-widest mb-2">✨ 2人へのおすすめ曲</p>
+                  <p className="text-white font-black text-lg leading-tight">{songSuggestion.title}</p>
+                  <p className="text-orange-300 text-sm mb-2">{songSuggestion.artist}</p>
+                  <p className="text-white/60 text-xs leading-relaxed">{songSuggestion.reason}</p>
+                </motion.div>
+              ) : null}
+            </div>
+
             <div className="flex flex-col gap-4 w-full max-w-xs relative z-10">
-              <button 
+              <button
                 onClick={() => {
                   setActiveChat(isMatch);
                   setIsMatch(null);
+                  setSongSuggestion(null);
                 }}
                 className="w-full py-5 bg-orange-600 text-white rounded-full font-black uppercase tracking-[0.2em] hover:bg-orange-700 transition-all shadow-2xl shadow-orange-500/40 active:scale-95"
               >
                 ジャムを開始
               </button>
-              <button 
-                onClick={() => setIsMatch(null)}
+              <button
+                onClick={() => { setIsMatch(null); setSongSuggestion(null); }}
                 className="w-full py-5 bg-white/5 text-white/50 rounded-full font-black uppercase tracking-[0.2em] hover:bg-white/10 transition-all active:scale-95"
               >
                 検索を続ける
