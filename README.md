@@ -1,20 +1,71 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# SoundFit
 
-# Run and deploy your AI Studio app
+**SoundFit** は、「新しい音楽体験」をテーマにした次世代SNSアプリです。  
+音楽を聴くだけでなく、**感情・気分・ライフスタイルに合わせて音をシェアし、つながる**ことを目指しています。
 
-This contains everything you need to run your app locally.
+---
 
-View your app in AI Studio: https://ai.studio/apps/8e5c5227-04d6-4fd1-a4fb-37ac3b62ff4e
+## コンセプト
 
-## Run Locally
+SoundFitは、ユーザー同士が「いまの自分にフィットする音楽」を発見・共有できるプラットフォームです。
 
-**Prerequisites:**  Node.js
+- 🎧 その日の気分に合う楽曲を見つける
+- 🌐 音楽を通じて新しい人とつながる
+- 🫶 好きなサウンド体験を投稿・共有する
 
+従来の「再生中心」の音楽アプリではなく、
+**音楽 × SNS** で体験そのものを広げることを目指しています。
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+---
+
+## 主な機能（開発中）
+
+- フィード投稿（楽曲・気分・コメント）
+- ユーザー同士のリアクション / フォロー
+- 気分タグ・シーン別の音楽レコメンド
+- パーソナライズされた音楽体験の提案
+
+> ※ 本プロジェクトは開発中のため、機能は順次追加・変更されます。
+
+---
+
+## 開発環境
+
+- Node.js
+- Vite
+- React
+- TypeScript
+
+---
+
+## ローカル起動手順
+
+1. 依存関係をインストール
+
+   ```bash
+   npm install
+   ```
+
+2. 環境変数を設定
+
+   `.env.local` を作成し、必要なAPIキーを設定してください。
+
+   ```env
+   GEMINI_API_KEY=your_api_key
+   ```
+
+3. 開発サーバーを起動
+
+   ```bash
+   npm run dev
+   ```
+
+---
+
+## 今後の展望
+
+- より精度の高いレコメンド体験
+- 音楽コミュニティ機能の拡張
+- ユーザーの趣味嗜好に合わせた新しい発見導線
+
+SoundFitは、音楽を「聴く」から「つながる」へ進化させるSNSを目指します。
