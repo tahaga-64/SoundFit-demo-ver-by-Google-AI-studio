@@ -19,7 +19,7 @@ function getAI(): GoogleGenAI {
 export async function testGeminiConnection(): Promise<{ ok: boolean; message: string }> {
   try {
     const response = await getAI().models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.0-flash-lite',
       contents: '「動作確認OK」とだけ日本語で返答してください。',
     });
     const text = response.text?.trim() ?? '';
