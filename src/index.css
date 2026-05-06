@@ -12,6 +12,20 @@
   50% { height: 12px; }
 }
 
+
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html, body, #root {
+  min-height: 100%;
+}
+
+body {
+  min-height: 100dvh;
+}
+
 body {
   @apply font-sans bg-[#0a0502];
 }
