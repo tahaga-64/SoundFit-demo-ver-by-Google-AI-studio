@@ -3,6 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+export interface CompatibilityResult {
+  score: number;
+  insight: string;
+  reasons: string[];
+}
+
 export interface Message {
   id: string;
   senderId: string;
