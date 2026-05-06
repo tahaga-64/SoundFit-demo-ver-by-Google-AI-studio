@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
 import { Heart, X, Music, User, MessageCircle, Info, Sparkles, AudioLines, Send, ChevronLeft, Bell, Settings } from 'lucide-react';
 import { DUMMY_PROFILES, type MusicProfile, type Message, type CompatibilityResult } from './types';
@@ -196,7 +196,9 @@ function SwipeCard({
         <div className="absolute top-6 left-6 z-40">
           <div className="bg-orange-500 text-white px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg shadow-orange-500/20">
             <Sparkles size={10} className="animate-pulse" />
-            <span className="text-[10px] font-black tracking-widest">{profile.compatibility}% VIBE MATCH</span>
+            <span className="text-[10px] font-black tracking-widest">
+              {aiResult ? `${aiResult.score}% AI MATCH` : isLoadingAI ? 'AI 分析中...' : `${profile.compatibility}% VIBE MATCH`}
+            </span>
           </div>
         </div>
 
@@ -329,27 +331,24 @@ export default function App() {
   const [activeChat, setActiveChat] = useState<MusicProfile | null>(null);
   const [aiResults, setAiResults] = useState<Record<string, CompatibilityResult>>({});
   const [loadingAI, setLoadingAI] = useState<Record<string, boolean>>({});
-
-  const fetchCompatibility = async (profile: MusicProfile) => {
-    if (aiResults[profile.id] || loadingAI[profile.id]) return;
-
-    setLoadingAI(prev => ({ ...prev, [profile.id]: true }));
-    try {
-      const result = await analyzeCompatibility(MY_PROFILE, profile);
-      setAiResults(prev => ({ ...prev, [profile.id]: result }));
-    } catch (e) {
-      console.error('AI分析エラー:', e);
-    } finally {
-      setLoadingAI(prev => ({ ...prev, [profile.id]: false }));
-    }
-  };
+  const fetchedIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const currentProfile = profiles[currentIndex];
-    if (currentProfile) {
-      fetchCompatibility(currentProfile);
-    }
-  }, [currentIndex]);
+    if (!currentProfile) return;
+    const id = currentProfile.id;
+    if (fetchedIds.current.has(id)) return;
+    fetchedIds.current.add(id);
+
+    let cancelled = false;
+    setLoadingAI(prev => ({ ...prev, [id]: true }));
+    analyzeCompatibility(MY_PROFILE, currentProfile)
+      .then(result => { if (!cancelled) setAiResults(prev => ({ ...prev, [id]: result })); })
+      .catch(e => console.error('AI分析エラー:', e))
+      .finally(() => { if (!cancelled) setLoadingAI(prev => ({ ...prev, [id]: false })); });
+
+    return () => { cancelled = true; };
+  }, [currentIndex, profiles]);
 
   const handleSwipe = (direction: 'left' | 'right') => {
     const currentProfile = profiles[currentIndex];
