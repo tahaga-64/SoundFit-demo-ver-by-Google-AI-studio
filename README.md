@@ -51,8 +51,11 @@ SoundFitは、ユーザー同士が「いまの自分にフィットする音楽
    `.env.local` を作成し、必要なAPIキーを設定してください。
 
    ```env
-   GEMINI_API_KEY=your_api_key
+   VITE_GEMINI_API_KEY=your_api_key
    ```
+
+   Vite ではクライアント側から参照する環境変数は `VITE_` プレフィックスが必須です。
+   アプリ内では `import.meta.env.VITE_GEMINI_API_KEY` として参照できます。
 
 3. 開発サーバーを起動
 
