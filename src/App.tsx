@@ -4,7 +4,7 @@
  */
 
 import { useState, useMemo, useEffect } from 'react';
-import { motion, AnimatePresence, useMotionValue, useTransform } from 'motion/react';
+import { motion, AnimatePresence, useMotionValue, useTransform, type PanInfo } from 'motion/react';
 import { Heart, X, Music, User, MessageCircle, Info, Sparkles, AudioLines, Send, ChevronLeft, Bell, Settings } from 'lucide-react';
 import { DUMMY_PROFILES, type MusicProfile, type Message } from './types';
 
@@ -80,7 +80,7 @@ function ChatRoom({ profile, onBack }: { profile: MusicProfile; onBack: () => vo
       text: inputValue,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
-    setMessages([...messages, newMessage]);
+    setMessages((prev) => [...prev, newMessage]);
     setInputValue('');
   };
 
@@ -97,7 +97,7 @@ function ChatRoom({ profile, onBack }: { profile: MusicProfile; onBack: () => vo
           <ChevronLeft size={24} />
         </button>
         <div className="flex items-center gap-3">
-          <img src={profile.avatar} className="w-10 h-10 rounded-full object-cover" referrerPolicy="no-referrer" />
+          <img src={profile.avatar} alt={profile.name} className="w-10 h-10 rounded-full object-cover" referrerPolicy="no-referrer" />
           <div>
             <h3 className="font-bold text-white text-sm">{profile.name}</h3>
             <div className="flex items-center gap-1.5 text-[10px] text-green-500 font-bold uppercase">
@@ -160,7 +160,7 @@ function SwipeCard({
   const colorRight = useTransform(x, [0, 150], ['rgba(255,255,255,0)', 'rgba(234,88,12,0.3)']); // Orange for Jam
   const colorLeft = useTransform(x, [-150, 0], ['rgba(115,115,115,0.3)', 'rgba(255,255,255,0)']); // Gray for Next
 
-  const handleDragEnd = (_: any, info: any) => {
+  const handleDragEnd = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     if (info.offset.x > 150) {
       onSwipe('right');
     } else if (info.offset.x < -150) {
@@ -181,7 +181,7 @@ function SwipeCard({
         <div className="absolute top-6 left-6 z-40">
           <div className="bg-orange-500 text-white px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg shadow-orange-500/20">
             <Sparkles size={10} className="animate-pulse" />
-            <span className="text-[10px] font-black tracking-widest">{profile.compatibility}% VIBE MATCH</span>
+            <span className="text-[10px] font-black tracking-widest">{profile.compatibility ?? 0}% VIBE MATCH</span>
           </div>
         </div>
 
