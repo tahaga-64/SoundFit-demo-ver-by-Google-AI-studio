@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+// チャット画面で表示する1件のメッセージ。senderId が 'me' のときは自分の発言として右側に表示する。
 export interface Message {
   id: string;
   senderId: string;
@@ -10,6 +11,14 @@ export interface Message {
   timestamp: string;
 }
 
+// AI の analyzeCompatibility が返す相性分析結果。スコア・一言コメント・共通点の理由リストで構成される。
+export interface CompatibilityResult {
+  score: number;
+  insight: string;
+  reasons: string[];
+}
+
+// スワイプカードやプロフィール画面で使うユーザーの音楽プロフィール。Spotify から取得した実データもこの型に変換して格納する。
 export interface MusicProfile {
   id: string;
   name: string;

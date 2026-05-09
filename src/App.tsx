@@ -8,7 +8,7 @@ import { motion, AnimatePresence, useMotionValue, useTransform, type PanInfo } f
 import { Heart, X, Music, User, MessageCircle, Info, Sparkles, AudioLines, Send, ChevronLeft, Bell, Settings } from 'lucide-react';
 import { DUMMY_PROFILES, type MusicProfile, type Message } from './types';
 
-// スプラッシュ画面コンポーネント
+// アプリ起動時に3秒間表示されるスプラッシュ画面。タイマー終了後に onComplete を呼んで本画面へ移行する。
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
   useEffect(() => {
     const timer = setTimeout(onComplete, 3000);
@@ -64,7 +64,7 @@ function SplashScreen({ onComplete }: { onComplete: () => void }) {
   );
 }
 
-// チャット画面コンポーネント (デモ用)
+// マッチしたユーザーとのチャット画面。デモ用の初期メッセージが2件入っており、送信ボタンまたは Enter キーで追加できる。
 function ChatRoom({ profile, onBack }: { profile: MusicProfile; onBack: () => void }) {
   const [messages, setMessages] = useState<Message[]>([
     { id: '1', senderId: profile.id, text: `はじめまして！${profile.favoriteArtists[0]}の最新アルバム、どう思いました？`, timestamp: '12:00' },
@@ -72,6 +72,7 @@ function ChatRoom({ profile, onBack }: { profile: MusicProfile; onBack: () => vo
   ]);
   const [inputValue, setInputValue] = useState('');
 
+  // 入力欄のテキストを新しいメッセージとしてリストに追加し、入力欄をクリアする。
   const handleSend = () => {
     if (!inputValue.trim()) return;
     const newMessage: Message = {
@@ -146,9 +147,10 @@ function ChatRoom({ profile, onBack }: { profile: MusicProfile; onBack: () => vo
   );
 }
 
-function SwipeCard({ 
-  profile, 
-  onSwipe 
+// プロフィールカードを左右にドラッグしてスワイプするコンポーネント。右スワイプで「JAM（いいね）」、左スワイプで「NEXT（スキップ）」。
+function SwipeCard({
+  profile,
+  onSwipe
 }: { 
   profile: MusicProfile; 
   onSwipe: (dir: 'left' | 'right') => void;
@@ -160,6 +162,7 @@ function SwipeCard({
   const colorRight = useTransform(x, [0, 150], ['rgba(255,255,255,0)', 'rgba(234,88,12,0.3)']); // Orange for Jam
   const colorLeft = useTransform(x, [-150, 0], ['rgba(115,115,115,0.3)', 'rgba(255,255,255,0)']); // Gray for Next
 
+  // ドラッグ終了時に移動量を判定し、150px 以上で右/左スワイプとして onSwipe を呼ぶ。
   const handleDragEnd = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     if (info.offset.x > 150) {
       onSwipe('right');
@@ -272,6 +275,7 @@ function SwipeCard({
   );
 }
 
+// アプリ全体のルートコンポーネント。スプラッシュ・発見・マッチ・プロフィールタブとマッチオーバーレイを管理する。
 export default function App() {
   const [loading, setLoading] = useState(true);
   const [profiles, setProfiles] = useState(DUMMY_PROFILES);
@@ -280,10 +284,12 @@ export default function App() {
   const [isMatch, setIsMatch] = useState<MusicProfile | null>(null);
   const [activeChat, setActiveChat] = useState<MusicProfile | null>(null);
 
+  // まだスワイプしていないプロフィールの先頭を返す。履歴が変わるたびに再計算する。
   const currentProfile = useMemo(() => {
     return profiles.find(p => !history.includes(p.id));
   }, [profiles, history]);
 
+  // スワイプ方向を受け取り、右スワイプなら60%の確率でマッチ成立。その後、現在のプロフィールを履歴に追加して次へ進む。
   const handleSwipe = (direction: 'left' | 'right') => {
     if (!currentProfile) return;
 
