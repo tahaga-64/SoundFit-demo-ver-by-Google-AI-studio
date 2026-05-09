@@ -9,6 +9,7 @@ import { type MusicProfile, type CompatibilityResult } from './types';
 const MODEL = 'claude-haiku-4-5-20251001';
 
 let client: Anthropic | null = null;
+// Anthropic クライアントを遅延初期化して返す。APIキーが未設定の場合はエラーをスローする。
 function getClient(): Anthropic {
   if (!client) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -18,6 +19,7 @@ function getClient(): Anthropic {
   return client;
 }
 
+// 指定したプロンプトを Claude Haiku に送信し、テキスト応答を返す内部関数。
 async function ask(prompt: string): Promise<string> {
   const msg = await getClient().messages.create({
     model: MODEL,
@@ -28,11 +30,13 @@ async function ask(prompt: string): Promise<string> {
   return block.type === 'text' ? block.text : '';
 }
 
+// Claude がマークダウンのコードブロック（```json ... ```）で返した応答を除去してから JSON としてパースする。
 function parseJSON<T>(text: string): T {
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
   return JSON.parse(cleaned) as T;
 }
 
+// AI への接続テスト。「動作確認OK」の応答が返るかどうかで正常稼働を確認する。
 export async function testAIConnection(): Promise<{ ok: boolean; message: string }> {
   try {
     const text = await ask('「動作確認OK」とだけ日本語で返答してください。');
@@ -42,6 +46,7 @@ export async function testAIConnection(): Promise<{ ok: boolean; message: string
   }
 }
 
+// 2人の音楽プロフィールを比較し、両者が好きになりそうな曲を1曲だけ AI に提案させる。
 export async function suggestSong(
   myProfile: MusicProfile,
   otherProfile: MusicProfile
@@ -68,6 +73,7 @@ export async function suggestSong(
   return parseJSON<{ title: string; artist: string; reason: string }>(text);
 }
 
+// 2人の音楽プロフィールから相性スコア（0〜100）・一言コメント・共通点の理由リストを AI に生成させる。
 export async function analyzeCompatibility(
   myProfile: MusicProfile,
   otherProfile: MusicProfile

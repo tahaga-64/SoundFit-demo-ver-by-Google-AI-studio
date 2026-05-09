@@ -11,12 +11,14 @@ const SCOPES = 'user-top-read user-read-currently-playing user-read-private';
 const TOKEN_KEY = 'spotify_access_token';
 const VERIFIER_KEY = 'spotify_code_verifier';
 
+// PKCE 認証に使う安全なランダム文字列（コード検証子）を生成する。crypto.getRandomValues で暗号的に安全な乱数を使用する。
 function randomString(len: number): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
   const buf = crypto.getRandomValues(new Uint8Array(len));
   return Array.from(buf, v => chars[v % chars.length]).join('');
 }
 
+// 文字列を SHA-256 でハッシュ化し、Base64URL 形式（URL セーフ、パディングなし）に変換する。PKCE のコードチャレンジ生成に使用する。
 async function sha256Base64URL(plain: string): Promise<string> {
   const data = new TextEncoder().encode(plain);
   const digest = await crypto.subtle.digest('SHA-256', data);
@@ -24,6 +26,7 @@ async function sha256Base64URL(plain: string): Promise<string> {
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+// PKCE フローを開始する。コード検証子をセッションに保存し、Spotify の認証画面へリダイレクトする。
 export async function loginWithSpotify(): Promise<void> {
   const verifier = randomString(128);
   const challenge = await sha256Base64URL(verifier);
@@ -40,6 +43,8 @@ export async function loginWithSpotify(): Promise<void> {
   window.location.href = `https://accounts.spotify.com/authorize?${params}`;
 }
 
+// Spotify からのリダイレクトを受け取り、URL の認証コードをアクセストークンに交換してセッションに保存する。
+// React StrictMode の二重実行を防ぐため、コードを URL から削除してからトークン交換を行う。
 export async function handleCallback(): Promise<string | null> {
   const code = new URLSearchParams(window.location.search).get('code');
   if (!code) return null;
@@ -78,14 +83,17 @@ export async function handleCallback(): Promise<string | null> {
   }
 }
 
+// セッションストレージから保存済みの Spotify アクセストークンを取得する。未ログインなら null を返す。
 export function getStoredToken(): string | null {
   return sessionStorage.getItem(TOKEN_KEY);
 }
 
+// セッションストレージのアクセストークンを削除する（ログアウト用）。
 export function clearToken(): void {
   sessionStorage.removeItem(TOKEN_KEY);
 }
 
+// Spotify Web API への GET リクエストを行う内部ヘルパー。204 No Content は null を返す。
 async function spotifyGet(path: string, token: string) {
   const res = await fetch(`https://api.spotify.com/v1${path}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -95,6 +103,7 @@ async function spotifyGet(path: string, token: string) {
   return res.json();
 }
 
+// ログイン中ユーザーのプロフィール・トップアーティスト・トップトラック・現在再生中の曲を並行取得し、MusicProfile 形式に変換して返す。
 export async function fetchMySpotifyProfile(token: string): Promise<Partial<MusicProfile>> {
   const [me, topArtists, topTracks] = await Promise.all([
     spotifyGet('/me', token),
