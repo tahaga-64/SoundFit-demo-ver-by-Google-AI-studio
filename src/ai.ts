@@ -3,17 +3,69 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { GoogleGenAI } from '@google/genai';
+import Anthropic from '@anthropic-ai/sdk';
 import { type MusicProfile, type CompatibilityResult } from './types';
 
-let ai: GoogleGenAI | null = null;
-function getAI(): GoogleGenAI {
-  if (!ai) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('GEMINI_API_KEY が設定されていません');
-    ai = new GoogleGenAI({ apiKey });
+const MODEL = 'claude-haiku-4-5-20251001';
+
+let client: Anthropic | null = null;
+function getClient(): Anthropic {
+  if (!client) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('ANTHROPIC_API_KEY が設定されていません');
+    client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
   }
-  return ai;
+  return client;
+}
+
+async function ask(prompt: string): Promise<string> {
+  const msg = await getClient().messages.create({
+    model: MODEL,
+    max_tokens: 512,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const block = msg.content[0];
+  return block.type === 'text' ? block.text : '';
+}
+
+function parseJSON<T>(text: string): T {
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  return JSON.parse(cleaned) as T;
+}
+
+export async function testAIConnection(): Promise<{ ok: boolean; message: string }> {
+  try {
+    const text = await ask('「動作確認OK」とだけ日本語で返答してください。');
+    return { ok: true, message: text.trim() || '応答あり（空レスポンス）' };
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+export async function suggestSong(
+  myProfile: MusicProfile,
+  otherProfile: MusicProfile
+): Promise<{ title: string; artist: string; reason: string }> {
+  const prompt = `あなたは音楽の専門家です。
+以下の2人の音楽の好みを分析し、2人が絶対に好きになる曲を1曲だけ提案してください。
+
+ユーザー1 (${myProfile.name}):
+- 好きなアーティスト: ${myProfile.favoriteArtists.join(', ')}
+- ジャンル: ${myProfile.genres.join(', ')}
+
+ユーザー2 (${otherProfile.name}):
+- 好きなアーティスト: ${otherProfile.favoriteArtists.join(', ')}
+- ジャンル: ${otherProfile.genres.join(', ')}
+
+以下のJSON形式のみで回答してください（余計なテキストなし）:
+{
+  "title": "曲名",
+  "artist": "アーティスト名",
+  "reason": "この曲を選んだ理由（30文字以内）"
+}`;
+
+  const text = await ask(prompt);
+  return parseJSON<{ title: string; artist: string; reason: string }>(text);
 }
 
 export async function analyzeCompatibility(
@@ -38,14 +90,6 @@ export async function analyzeCompatibility(
   "reasons": ["共通点や相性の理由1", "共通点や相性の理由2"]
 }`;
 
-  const response = await getAI().models.generateContent({
-    model: 'gemini-2.0-flash',
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
-    },
-  });
-
-  const text = response.text;
-  return JSON.parse(text) as CompatibilityResult;
+  const text = await ask(prompt);
+  return parseJSON<CompatibilityResult>(text);
 }
