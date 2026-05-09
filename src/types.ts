@@ -33,7 +33,6 @@ export interface MusicProfile {
   aiInsight?: string;
 }
 
-// Spotify 未連携時にスワイプ画面で使うデモ用プロフィール4件。相性スコアと AI インサイトはあらかじめ固定値で設定してある。
 export const DUMMY_PROFILES: MusicProfile[] = [
   {
     id: "1",

@@ -5,7 +5,7 @@
 
 import { type MusicProfile } from './types';
 
-const CLIENT_ID = process.env.SPOTIFY_CLIENT_ID ?? '';
+const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID ?? '';
 const REDIRECT_URI = window.location.origin;
 const SCOPES = 'user-top-read user-read-currently-playing user-read-private';
 const TOKEN_KEY = 'spotify_access_token';
@@ -22,7 +22,7 @@ function randomString(len: number): string {
 async function sha256Base64URL(plain: string): Promise<string> {
   const data = new TextEncoder().encode(plain);
   const digest = await crypto.subtle.digest('SHA-256', data);
-  return btoa(String.fromCharCode(...new Uint8Array(digest)))
+  return btoa(Array.from(new Uint8Array(digest), b => String.fromCharCode(b)).join(''))
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
@@ -74,9 +74,11 @@ export async function handleCallback(): Promise<string | null> {
       console.error('Spotify token exchange failed:', res.status, await res.text());
       return null;
     }
-    const { access_token: token } = await res.json();
+    const data = await res.json();
+    const token: unknown = data?.access_token;
+    if (typeof token !== 'string') return null;
     sessionStorage.setItem(TOKEN_KEY, token);
-    return token as string;
+    return token;
   } catch (e) {
     console.error('Spotify token exchange error:', e);
     return null;

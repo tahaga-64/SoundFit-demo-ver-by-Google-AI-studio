@@ -10,10 +10,11 @@ const MODEL = 'claude-haiku-4-5-20251001';
 
 let client: Anthropic | null = null;
 // Anthropic クライアントを遅延初期化して返す。APIキーが未設定の場合はエラーをスローする。
+// NOTE: dangerouslyAllowBrowser はデモ用途のみ。本番ではサーバーサイドプロキシ経由にすること。
 function getClient(): Anthropic {
   if (!client) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) throw new Error('ANTHROPIC_API_KEY が設定されていません');
+    const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+    if (!apiKey) throw new Error('VITE_ANTHROPIC_API_KEY が設定されていません');
     client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true });
   }
   return client;
@@ -31,9 +32,11 @@ async function ask(prompt: string): Promise<string> {
 }
 
 // Claude がマークダウンのコードブロック（```json ... ```）で返した応答を除去してから JSON としてパースする。
+// JSON.parse の戻り値は unknown 経由で T にキャストする。スキーマ検証なしのため呼び出し元で try/catch すること。
 function parseJSON<T>(text: string): T {
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-  return JSON.parse(cleaned) as T;
+  const value: unknown = JSON.parse(cleaned);
+  return value as T;
 }
 
 // AI への接続テスト。「動作確認OK」の応答が返るかどうかで正常稼働を確認する。
