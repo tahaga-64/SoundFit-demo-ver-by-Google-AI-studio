@@ -381,7 +381,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#0a0502] text-neutral-200 font-sans overflow-hidden flex flex-col">
+    <div className="h-dvh bg-[#0a0502] text-neutral-200 font-sans overflow-hidden flex flex-col">
       <AnimatePresence>
         {loading && <SplashScreen onComplete={() => setLoading(false)} />}
       </AnimatePresence>
