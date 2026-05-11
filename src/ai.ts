@@ -9,7 +9,6 @@ import { type Song } from './types';
 const MODEL = 'claude-haiku-4-5-20251001';
 
 let client: Anthropic | null = null;
-// Anthropic クライアントを遅延初期化して返す。APIキーが未設定の場合はエラーをスローする。
 // NOTE: dangerouslyAllowBrowser はデモ用途のみ。本番ではサーバーサイドプロキシ経由にすること。
 function getClient(): Anthropic {
   if (!client) {
@@ -20,7 +19,6 @@ function getClient(): Anthropic {
   return client;
 }
 
-// 指定したプロンプトを Claude Haiku に送信し、テキスト応答を返す内部関数。
 async function ask(prompt: string, maxTokens = 4096): Promise<string> {
   const msg = await getClient().messages.create({
     model: MODEL,
@@ -31,21 +29,63 @@ async function ask(prompt: string, maxTokens = 4096): Promise<string> {
   return block.type === 'text' ? block.text : '';
 }
 
-// Claude がマークダウンのコードブロック（```json ... ```）で返した応答を除去してから JSON としてパースする。
-// JSON.parse の戻り値は unknown 経由で T にキャストする。スキーマ検証なしのため呼び出し元で try/catch すること。
 function parseJSON<T>(text: string): T {
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
   const value: unknown = JSON.parse(cleaned);
   return value as T;
 }
 
-// ユーザーの好きなジャンル・アーティストから今日の50曲をセレクトして返す。
-// AIが曲名・アーティスト・リリース年・ジャンルを含むJSON配列を生成する。
-// albumCover はこの時点では空文字（後続の fetchAlbumCovers で補完する）。
+// APIキー未設定・認証エラー時に表示するデモ用フォールバック曲（30曲）
+const DEMO_SONGS: Omit<Song, 'id' | 'albumCover' | 'spotifyId' | 'isSuperLiked'>[] = [
+  { title: 'Blinding Lights', artist: 'The Weeknd', releaseYear: 2019, releaseMonth: 11, genre: 'Pop' },
+  { title: 'As It Was', artist: 'Harry Styles', releaseYear: 2022, releaseMonth: 4, genre: 'Pop' },
+  { title: 'HUMBLE.', artist: 'Kendrick Lamar', releaseYear: 2017, releaseMonth: 4, genre: 'Hip-Hop' },
+  { title: 'God\'s Plan', artist: 'Drake', releaseYear: 2018, releaseMonth: 1, genre: 'Hip-Hop' },
+  { title: 'Shape of You', artist: 'Ed Sheeran', releaseYear: 2017, releaseMonth: 1, genre: 'Pop' },
+  { title: 'Levitating', artist: 'Dua Lipa', releaseYear: 2020, releaseMonth: 10, genre: 'Pop' },
+  { title: 'Stay With Me', artist: 'Sam Smith', releaseYear: 2014, releaseMonth: 4, genre: 'Soul' },
+  { title: 'Happier', artist: 'Marshmello & Bastille', releaseYear: 2018, releaseMonth: 8, genre: 'Electronic' },
+  { title: 'Shelter', artist: 'Porter Robinson & Madeon', releaseYear: 2016, releaseMonth: 8, genre: 'Electronic' },
+  { title: 'Dynamite', artist: 'BTS', releaseYear: 2020, releaseMonth: 8, genre: 'K-Pop' },
+  { title: 'Attention', artist: 'NewJeans', releaseYear: 2022, releaseMonth: 7, genre: 'K-Pop' },
+  { title: 'IDOL', artist: 'BTS', releaseYear: 2018, releaseMonth: 8, genre: 'K-Pop' },
+  { title: 'Bohemian Rhapsody', artist: 'Queen', releaseYear: 1975, releaseMonth: 10, genre: 'Rock' },
+  { title: 'Hotel California', artist: 'Eagles', releaseYear: 1977, releaseMonth: 2, genre: 'Rock' },
+  { title: 'Come As You Are', artist: 'Nirvana', releaseYear: 1991, releaseMonth: 3, genre: 'Rock' },
+  { title: 'Lose Yourself', artist: 'Eminem', releaseYear: 2002, releaseMonth: 10, genre: 'Hip-Hop' },
+  { title: 'N****s in Paris', artist: 'Jay-Z & Kanye West', releaseYear: 2011, releaseMonth: 8, genre: 'Hip-Hop' },
+  { title: 'Thriller', artist: 'Michael Jackson', releaseYear: 1982, releaseMonth: 11, genre: 'Pop' },
+  { title: 'Purple Rain', artist: 'Prince', releaseYear: 1984, releaseMonth: 7, genre: 'Pop' },
+  { title: 'Rolling in the Deep', artist: 'Adele', releaseYear: 2010, releaseMonth: 11, genre: 'Soul' },
+  { title: 'Someone Like You', artist: 'Adele', releaseYear: 2011, releaseMonth: 1, genre: 'Soul' },
+  { title: 'Superstition', artist: 'Stevie Wonder', releaseYear: 1972, releaseMonth: 10, genre: 'Soul' },
+  { title: 'Take Five', artist: 'Dave Brubeck Quartet', releaseYear: 1959, releaseMonth: 1, genre: 'Jazz' },
+  { title: 'So What', artist: 'Miles Davis', releaseYear: 1959, releaseMonth: 8, genre: 'Jazz' },
+  { title: 'Mr. Brightside', artist: 'The Killers', releaseYear: 2003, releaseMonth: 9, genre: 'Indie' },
+  { title: 'Do I Wanna Know?', artist: 'Arctic Monkeys', releaseYear: 2013, releaseMonth: 6, genre: 'Indie' },
+  { title: 'One More Time', artist: 'Daft Punk', releaseYear: 2000, releaseMonth: 11, genre: 'Electronic' },
+  { title: 'Get Lucky', artist: 'Daft Punk', releaseYear: 2013, releaseMonth: 4, genre: 'Electronic' },
+  { title: 'Die For You', artist: 'The Weeknd', releaseYear: 2016, releaseMonth: 12, genre: 'R&B' },
+  { title: 'No Scrubs', artist: 'TLC', releaseYear: 1999, releaseMonth: 3, genre: 'R&B' },
+];
+
+function makeDemoSongs(): Song[] {
+  return DEMO_SONGS.map((s, i) => ({
+    ...s,
+    id: `demo-${Date.now()}-${i}`,
+    albumCover: '',
+    spotifyId: undefined,
+    isSuperLiked: false,
+  }));
+}
+
 export async function selectDailySongs(
   genres: string[],
   artists: string[]
 ): Promise<Song[]> {
+  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  if (!apiKey) return makeDemoSongs();
+
   const prompt = `あなたは音楽キュレーターの専門家です。
 以下のユーザーの音楽の好みに基づいて、今日のおすすめ曲を50曲セレクトしてください。
 
@@ -70,27 +110,32 @@ export async function selectDailySongs(
 ]
 必ず50曲分のデータを返してください。`;
 
-  const text = await ask(prompt, 4096);
+  try {
+    const text = await ask(prompt, 4096);
 
-  type RawSong = {
-    title: string;
-    artist: string;
-    releaseYear: number;
-    releaseMonth?: number;
-    genre: string;
-  };
+    type RawSong = {
+      title: string;
+      artist: string;
+      releaseYear: number;
+      releaseMonth?: number;
+      genre: string;
+    };
 
-  const rawSongs = parseJSON<RawSong[]>(text);
+    const rawSongs = parseJSON<RawSong[]>(text);
 
-  return rawSongs.map((s, i) => ({
-    id: `song-${Date.now()}-${i}`,
-    title: s.title,
-    artist: s.artist,
-    releaseYear: s.releaseYear,
-    releaseMonth: s.releaseMonth,
-    genre: s.genre,
-    albumCover: '', // fetchAlbumCovers で後から補完する
-    spotifyId: undefined,
-    isSuperLiked: false,
-  }));
+    return rawSongs.map((s, i) => ({
+      id: `song-${Date.now()}-${i}`,
+      title: s.title,
+      artist: s.artist,
+      releaseYear: s.releaseYear,
+      releaseMonth: s.releaseMonth,
+      genre: s.genre,
+      albumCover: '',
+      spotifyId: undefined,
+      isSuperLiked: false,
+    }));
+  } catch {
+    // 認証エラー・ネットワーク障害時はデモ曲にフォールバック
+    return makeDemoSongs();
+  }
 }
