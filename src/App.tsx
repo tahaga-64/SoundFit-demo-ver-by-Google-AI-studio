@@ -957,7 +957,7 @@ export default function App() {
       setSwipeIndex(0);
     } catch (e) {
       console.error('Song generation error:', e);
-      setAiError(true); // リトライループを止める
+      setAiError(true);
     }
     finally { setLoadingAI(false); generatingRef.current = false; }
   }, []);
