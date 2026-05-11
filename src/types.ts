@@ -13,6 +13,7 @@ export interface Song {
   genre: string;
   albumCover: string; // Spotify画像URL、またはジャンル別グラデーションプレースホルダー
   spotifyId?: string;
+  previewUrl?: string; // Deezer 30秒プレビューMP3 URL
   isSuperLiked: boolean;
 }
 
