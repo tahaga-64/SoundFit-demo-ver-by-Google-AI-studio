@@ -8,7 +8,7 @@ import { motion, AnimatePresence, useMotionValue, useTransform, type PanInfo } f
 import {
   Music, Star, X, Heart, User, Users, ListMusic,
   Search, Plus, Check, AudioLines, Sparkles, Loader2,
-  Copy, ChevronRight, ExternalLink, Bell,
+  Copy, ChevronRight, ExternalLink, Bell, Pause, Play, Volume2, VolumeX,
 } from 'lucide-react';
 import {
   type Song, type PlaylistItem, type FriendAccount, type UserPreferences,
@@ -19,6 +19,7 @@ import {
   loginWithSpotify, handleCallback, getStoredToken, clearToken,
   fetchMySpotifyProfile, fetchAlbumCovers,
 } from './spotify';
+import { fetchPreviewUrl } from './deezer';
 
 // ---- localStorage ヘルパー ----------------------------------------
 
@@ -214,7 +215,12 @@ function OnboardingScreen({ onComplete }: { onComplete: (prefs: UserPreferences)
 
 // ---- SongSwipeCard -------------------------------------------------
 
-function SongSwipeCard({ song, onSwipe }: { song: Song; onSwipe: (dir: 'left' | 'right' | 'up') => void; key?: string }) {
+function SongSwipeCard({ song, previewUrl, onSwipe }: {
+  song: Song;
+  previewUrl: string | null;
+  onSwipe: (dir: 'left' | 'right' | 'up') => void;
+  key?: string;
+}) {
   const x = useMotionValue(0);
   const y = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-18, 18]);
@@ -227,7 +233,55 @@ function SongSwipeCard({ song, onSwipe }: { song: Song; onSwipe: (dir: 'left' | 
   const skipLabel = useTransform(x, [-120, -40], [1, 0]);
   const superLabel = useTransform(y, [-120, -40], [1, 0]);
 
+  // Audio player state
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [progress, setProgress] = useState(0); // 0-1
+  const [muted, setMuted] = useState(false);
+  const [loadingAudio, setLoadingAudio] = useState(false);
+
+  // previewUrl が変わったら新しい Audio オブジェクトを作成して自動再生を試みる
+  useEffect(() => {
+    if (!previewUrl) return;
+    const audio = new Audio(previewUrl);
+    audio.volume = 0.7;
+    audioRef.current = audio;
+    setLoadingAudio(true);
+    setProgress(0);
+
+    const onTime = () => setProgress(audio.currentTime / (audio.duration || 30));
+    const onEnded = () => setPlaying(false);
+    const onCanPlay = () => setLoadingAudio(false);
+    audio.addEventListener('timeupdate', onTime);
+    audio.addEventListener('ended', onEnded);
+    audio.addEventListener('canplaythrough', onCanPlay);
+
+    audio.play().then(() => setPlaying(true)).catch(() => { setPlaying(false); setLoadingAudio(false); });
+
+    return () => {
+      audio.pause();
+      audio.src = '';
+      audio.removeEventListener('timeupdate', onTime);
+      audio.removeEventListener('ended', onEnded);
+      audio.removeEventListener('canplaythrough', onCanPlay);
+      audioRef.current = null;
+    };
+  }, [previewUrl]);
+
+  // ミュート同期
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.muted = muted;
+  }, [muted]);
+
+  const togglePlay = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!audioRef.current) return;
+    if (playing) { audioRef.current.pause(); setPlaying(false); }
+    else { audioRef.current.play().then(() => setPlaying(true)).catch(() => {}); }
+  };
+
   const handleDragEnd = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+    audioRef.current?.pause();
     if (info.offset.y < -120) { onSwipe('up'); return; }
     if (info.offset.x > 120) { onSwipe('right'); return; }
     if (info.offset.x < -120) { onSwipe('left'); return; }
@@ -265,6 +319,29 @@ function SongSwipeCard({ song, onSwipe }: { song: Song; onSwipe: (dir: 'left' | 
             <div className="absolute top-4 right-4 bg-black/60 backdrop-blur-md px-3 py-1 rounded-full border border-white/10">
               <span className="text-[10px] font-black uppercase tracking-widest text-orange-400">{song.genre}</span>
             </div>
+
+            {/* Play / Mute controls (album cover 右下) */}
+            {previewUrl && (
+              <div className="absolute bottom-4 right-4 flex items-center gap-2 z-20">
+                <button
+                  onClick={e => { e.stopPropagation(); setMuted(m => !m); }}
+                  className="w-8 h-8 bg-black/60 backdrop-blur-md rounded-full flex items-center justify-center border border-white/10 text-white/60 hover:text-white transition-colors"
+                >
+                  {muted ? <VolumeX size={14} /> : <Volume2 size={14} />}
+                </button>
+                <button
+                  onClick={togglePlay}
+                  className="w-10 h-10 bg-orange-500/90 backdrop-blur-md rounded-full flex items-center justify-center shadow-lg shadow-orange-500/30 text-white hover:bg-orange-500 transition-colors"
+                >
+                  {loadingAudio
+                    ? <Loader2 size={16} className="animate-spin" />
+                    : playing
+                      ? <Pause size={16} fill="white" />
+                      : <Play size={16} fill="white" />
+                  }
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Song info - bottom 40% */}
@@ -273,21 +350,39 @@ function SongSwipeCard({ song, onSwipe }: { song: Song; onSwipe: (dir: 'left' | 
             <h2 className="text-2xl font-black text-white italic tracking-tight leading-tight line-clamp-2">{song.title}</h2>
             <p className="text-sm text-white/60 font-medium mt-0.5">{song.artist}</p>
 
-            {/* Swipe hint */}
-            <div className="flex items-center gap-4 mt-4">
-              <div className="flex items-center gap-1.5 text-neutral-600">
-                <X size={14} />
-                <span className="text-[10px] font-bold uppercase">スキップ</span>
+            {/* Progress bar (previewUrl あり時のみ) */}
+            {previewUrl ? (
+              <div className="mt-3">
+                <div className="h-1 bg-white/10 rounded-full overflow-hidden">
+                  <motion.div
+                    className="h-full bg-orange-500 rounded-full origin-left"
+                    style={{ scaleX: progress }}
+                  />
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-[9px] text-white/20 font-mono">
+                    {Math.floor(progress * 30)}s
+                  </span>
+                  <span className="text-[9px] text-orange-500/60 font-mono font-black">▶ Deezer 30s preview</span>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 text-orange-500/60">
-                <Heart size={14} />
-                <span className="text-[10px] font-bold uppercase">追加</span>
+            ) : (
+              /* Swipe hint（preview なし時） */
+              <div className="flex items-center gap-4 mt-4">
+                <div className="flex items-center gap-1.5 text-neutral-600">
+                  <X size={14} />
+                  <span className="text-[10px] font-bold uppercase">スキップ</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-orange-500/60">
+                  <Heart size={14} />
+                  <span className="text-[10px] font-bold uppercase">追加</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-yellow-500/60">
+                  <Star size={14} />
+                  <span className="text-[10px] font-bold uppercase">スーパー</span>
+                </div>
               </div>
-              <div className="flex items-center gap-1.5 text-yellow-500/60">
-                <Star size={14} />
-                <span className="text-[10px] font-bold uppercase">スーパー</span>
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Overlay colors */}
@@ -733,6 +828,9 @@ export default function App() {
 
   const generatingRef = useRef(false);
 
+  // Deezer プレビュー URL（現在のカード用）
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
   // Spotify コールバック処理 + プロフィール取得
   useEffect(() => {
     const init = async () => {
@@ -797,6 +895,13 @@ export default function App() {
 
   // スワイプ処理
   const currentSong = songs[swipeIndex] ?? null;
+
+  // 表示中の曲が変わったら Deezer プレビュー URL を取得する
+  useEffect(() => {
+    setPreviewUrl(null);
+    if (!currentSong) return;
+    fetchPreviewUrl(currentSong.title, currentSong.artist).then(setPreviewUrl);
+  }, [currentSong?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSwipe = (dir: 'left' | 'right' | 'up') => {
     if (!currentSong) return;
@@ -883,7 +988,7 @@ export default function App() {
               </div>
             ) : currentSong ? (
               <AnimatePresence mode="popLayout">
-                <SongSwipeCard key={currentSong.id} song={currentSong} onSwipe={handleSwipe} />
+                <SongSwipeCard key={currentSong.id} song={currentSong} previewUrl={previewUrl} onSwipe={handleSwipe} />
               </AnimatePresence>
             ) : prefs ? (
               <div className="flex flex-col items-center gap-4 text-center px-8">
