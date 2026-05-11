@@ -3,10 +3,23 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, type PanInfo } from 'motion/react';
-import { Heart, X, Music, User, MessageCircle, Info, Sparkles, AudioLines, Send, ChevronLeft, Bell, Settings } from 'lucide-react';
-import { DUMMY_PROFILES, type MusicProfile, type Message } from './types';
+import { Heart, X, Music, User, MessageCircle, Info, Sparkles, AudioLines, Send, ChevronLeft, Bell, Settings, Loader2 } from 'lucide-react';
+import { DUMMY_PROFILES, type MusicProfile, type Message, type CompatibilityResult } from './types';
+import { analyzeCompatibility, suggestSong } from './ai';
+import { loginWithSpotify, handleCallback, getStoredToken, clearToken, fetchMySpotifyProfile } from './spotify';
+
+// Spotify 未接続時に使うデフォルトの自分プロフィール
+const MY_PROFILE_DEFAULT: MusicProfile = {
+  id: 'me',
+  name: 'Kaito',
+  age: 25,
+  bio: '',
+  avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=400&q=80',
+  favoriteArtists: ['Radiohead', 'Tame Impala', 'Bonobo', 'Massive Attack'],
+  genres: ['Indie Rock', 'Electronic', 'Ambient'],
+};
 
 // アプリ起動時に3秒間表示されるスプラッシュ画面。タイマー終了後に onComplete を呼んで本画面へ移行する。
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
@@ -16,7 +29,7 @@ function SplashScreen({ onComplete }: { onComplete: () => void }) {
   }, [onComplete]);
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 1 }}
       exit={{ opacity: 0, y: -20 }}
       transition={{ duration: 0.8, ease: "easeInOut" }}
@@ -24,17 +37,12 @@ function SplashScreen({ onComplete }: { onComplete: () => void }) {
     >
       <div className="relative">
         <motion.div
-          animate={{ 
-            scale: [1, 1.2, 1],
-            rotate: [0, 10, -10, 0]
-          }}
+          animate={{ scale: [1, 1.2, 1], rotate: [0, 10, -10, 0] }}
           transition={{ duration: 2, repeat: Infinity }}
           className="w-24 h-24 bg-gradient-to-tr from-orange-500 to-rose-600 rounded-3xl flex items-center justify-center shadow-2xl shadow-orange-500/20"
         >
           <Music className="text-white" size={48} />
         </motion.div>
-        
-        {/* パーティクル的なエフェクト */}
         {[...Array(6)].map((_, i) => (
           <motion.div
             key={i}
@@ -47,7 +55,6 @@ function SplashScreen({ onComplete }: { onComplete: () => void }) {
           </motion.div>
         ))}
       </div>
-      
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -81,12 +88,12 @@ function ChatRoom({ profile, onBack }: { profile: MusicProfile; onBack: () => vo
       text: inputValue,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
-    setMessages((prev) => [...prev, newMessage]);
+    setMessages(prev => [...prev, newMessage]);
     setInputValue('');
   };
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ x: '100%' }}
       animate={{ x: 0 }}
       exit={{ x: '100%' }}
@@ -108,13 +115,12 @@ function ChatRoom({ profile, onBack }: { profile: MusicProfile; onBack: () => vo
           </div>
         </div>
       </header>
-
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.map((m) => (
           <div key={m.id} className={`flex ${m.senderId === 'me' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[80%] p-3 rounded-2xl text-sm ${
-              m.senderId === 'me' 
-                ? 'bg-orange-600 text-white rounded-tr-none' 
+              m.senderId === 'me'
+                ? 'bg-orange-600 text-white rounded-tr-none'
                 : 'bg-white/5 text-white/90 border border-white/5 rounded-tl-none'
             }`}>
               {m.text}
@@ -125,17 +131,16 @@ function ChatRoom({ profile, onBack }: { profile: MusicProfile; onBack: () => vo
           </div>
         ))}
       </div>
-
       <div className="p-4 pb-10 bg-black/40 border-t border-white/5">
         <div className="flex gap-2">
-          <input 
+          <input
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
             placeholder="メッセージを入力..."
             className="flex-1 bg-white/5 border border-white/10 rounded-full px-4 py-2 text-sm focus:outline-none focus:border-orange-500 transition-colors"
           />
-          <button 
+          <button
             onClick={handleSend}
             className="w-10 h-10 bg-orange-600 rounded-full flex items-center justify-center text-white"
           >
@@ -148,28 +153,33 @@ function ChatRoom({ profile, onBack }: { profile: MusicProfile; onBack: () => vo
 }
 
 // プロフィールカードを左右にドラッグしてスワイプするコンポーネント。右スワイプで「JAM（いいね）」、左スワイプで「NEXT（スキップ）」。
+// aiResult が渡されると AI の動的スコア・インサイトを表示し、ローディング中はスピナーを出す。
 function SwipeCard({
   profile,
+  aiResult,
+  isLoadingAI,
   onSwipe
-}: { 
-  profile: MusicProfile; 
+}: {
+  profile: MusicProfile;
+  aiResult?: CompatibilityResult;
+  isLoadingAI: boolean;
   onSwipe: (dir: 'left' | 'right') => void;
   key?: string;
 }) {
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-20, 20]);
   const opacity = useTransform(x, [-200, -100, 0, 100, 200], [0.4, 1, 1, 1, 0.4]);
-  const colorRight = useTransform(x, [0, 150], ['rgba(255,255,255,0)', 'rgba(234,88,12,0.3)']); // Orange for Jam
-  const colorLeft = useTransform(x, [-150, 0], ['rgba(115,115,115,0.3)', 'rgba(255,255,255,0)']); // Gray for Next
+  const colorRight = useTransform(x, [0, 150], ['rgba(255,255,255,0)', 'rgba(234,88,12,0.3)']);
+  const colorLeft = useTransform(x, [-150, 0], ['rgba(115,115,115,0.3)', 'rgba(255,255,255,0)']);
 
   // ドラッグ終了時に移動量を判定し、150px 以上で右/左スワイプとして onSwipe を呼ぶ。
   const handleDragEnd = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    if (info.offset.x > 150) {
-      onSwipe('right');
-    } else if (info.offset.x < -150) {
-      onSwipe('left');
-    }
+    if (info.offset.x > 150) onSwipe('right');
+    else if (info.offset.x < -150) onSwipe('left');
   };
+
+  const score = aiResult?.score ?? profile.compatibility ?? 0;
+  const insight = aiResult?.insight ?? profile.aiInsight;
 
   return (
     <motion.div
@@ -183,26 +193,27 @@ function SwipeCard({
         {/* Compatibility Badge */}
         <div className="absolute top-6 left-6 z-40">
           <div className="bg-orange-500 text-white px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg shadow-orange-500/20">
-            <Sparkles size={10} className="animate-pulse" />
-            <span className="text-[10px] font-black tracking-widest">{profile.compatibility ?? 0}% VIBE MATCH</span>
+            {isLoadingAI
+              ? <Loader2 size={10} className="animate-spin" />
+              : <Sparkles size={10} className="animate-pulse" />
+            }
+            <span className="text-[10px] font-black tracking-widest">
+              {isLoadingAI ? 'ANALYZING...' : `${score}% VIBE MATCH`}
+            </span>
           </div>
         </div>
 
-        {/* Swipe Overlays */}
         <motion.div style={{ backgroundColor: colorRight }} className="absolute inset-0 pointer-events-none z-10" />
         <motion.div style={{ backgroundColor: colorLeft }} className="absolute inset-0 pointer-events-none z-10" />
 
-        {/* Profile Image with Vinyl Effect Overlay */}
         <div className="relative h-2/3 w-full overflow-hidden">
-          <img 
-            src={profile.avatar} 
+          <img
+            src={profile.avatar}
             alt={profile.name}
             className="w-full h-full object-cover grayscale-[0.2] transition-transform duration-700 group-hover:scale-110"
             referrerPolicy="no-referrer"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-[#0c0c0e] via-transparent to-transparent opacity-80" />
-          
-          {/* Listening Now Badge */}
           {profile.listeningNow && (
             <div className="absolute bottom-4 left-6 z-40 flex items-center gap-2 bg-black/60 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/10 max-w-[85%]">
               <AudioLines size={14} className="text-orange-500" />
@@ -214,29 +225,33 @@ function SwipeCard({
           )}
         </div>
 
-        {/* Content Section */}
         <div className="flex-1 bg-[#0c0c0e] p-6 flex flex-col pt-0 gap-3">
           <div className="flex items-baseline gap-2 mb-1">
             <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase">{profile.name}</h2>
             <span className="text-sm font-mono text-neutral-500">/{profile.age}</span>
           </div>
-          
+
           {/* AI Insight Box */}
-          <div className="bg-orange-500/10 border border-orange-500/20 p-3 rounded-xl relative overflow-hidden">
+          <div className="bg-orange-500/10 border border-orange-500/20 p-3 rounded-xl relative overflow-hidden min-h-[56px] flex flex-col justify-center">
             <div className="absolute top-0 right-0 p-1">
               <Sparkles size={12} className="text-orange-500/30" />
             </div>
             <p className="text-[10px] text-orange-500 font-black uppercase tracking-widest mb-1 italic">AI Insight</p>
-            <p className="text-[11px] text-white/70 leading-relaxed italic line-clamp-2">
-              "{profile.aiInsight}"
-            </p>
+            {isLoadingAI ? (
+              <div className="flex items-center gap-2">
+                <Loader2 size={10} className="animate-spin text-orange-500/50" />
+                <p className="text-[11px] text-white/40 italic">相性を分析中...</p>
+              </div>
+            ) : (
+              <p className="text-[11px] text-white/70 leading-relaxed italic line-clamp-2">
+                "{insight}"
+              </p>
+            )}
           </div>
 
           <div className="space-y-3">
             <div>
-              <p className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-1 flex items-center gap-2">
-                Favorites
-              </p>
+              <p className="text-[9px] font-bold text-neutral-500 uppercase tracking-widest mb-1">Favorites</p>
               <div className="flex flex-wrap gap-1.5">
                 {profile.favoriteArtists.slice(0, 3).map(artist => (
                   <span key={artist} className="text-[11px] font-medium text-white/80 bg-white/5 px-2 py-0.5 rounded-md border border-white/5">
@@ -245,7 +260,6 @@ function SwipeCard({
                 ))}
               </div>
             </div>
-
             <div className="flex items-center gap-3 bg-white/5 p-2.5 rounded-xl border border-white/5">
               <div className="w-8 h-8 rounded-lg bg-orange-500/20 flex items-center justify-center">
                 <Music size={14} className="text-orange-500" />
@@ -257,14 +271,13 @@ function SwipeCard({
           </div>
         </div>
 
-        {/* Swipe Indicators */}
-        <motion.div 
+        <motion.div
           style={{ opacity: useTransform(x, [50, 150], [0, 1]) }}
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 border-4 border-orange-500 text-orange-500 font-black px-8 py-3 rounded-xl transform -rotate-12 z-50 text-4xl uppercase tracking-widest bg-black shadow-2xl"
         >
           JAM
         </motion.div>
-        <motion.div 
+        <motion.div
           style={{ opacity: useTransform(x, [-50, -150], [0, 1]) }}
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 border-4 border-neutral-500 text-neutral-500 font-black px-8 py-3 rounded-xl transform rotate-12 z-50 text-4xl uppercase tracking-widest bg-black shadow-2xl"
         >
@@ -278,37 +291,100 @@ function SwipeCard({
 // アプリ全体のルートコンポーネント。スプラッシュ・発見・マッチ・プロフィールタブとマッチオーバーレイを管理する。
 export default function App() {
   const [loading, setLoading] = useState(true);
-  const [profiles, setProfiles] = useState(DUMMY_PROFILES);
+  const [profiles] = useState(DUMMY_PROFILES);
   const [history, setHistory] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'discover' | 'matches' | 'profile'>('discover');
   const [isMatch, setIsMatch] = useState<MusicProfile | null>(null);
   const [activeChat, setActiveChat] = useState<MusicProfile | null>(null);
 
+  // 自分のプロフィール（Spotify 接続後に上書きされる）
+  const [myProfile, setMyProfile] = useState<MusicProfile>(MY_PROFILE_DEFAULT);
+  const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
+  const [loadingSpotify, setLoadingSpotify] = useState(false);
+
+  // AI 相性分析結果（プロフィール ID をキーに保持）
+  const [aiResults, setAiResults] = useState<Record<string, CompatibilityResult>>({});
+  const [loadingAIForId, setLoadingAIForId] = useState<string | null>(null);
+
+  // マッチ時の曲提案
+  const [songSuggestion, setSongSuggestion] = useState<{ title: string; artist: string; reason: string } | null>(null);
+  const [loadingSong, setLoadingSong] = useState(false);
+
+  // StrictMode の二重実行を防ぐため、分析済みプロフィール ID を ref で管理する。
+  const fetchedIds = useRef(new Set<string>());
+
   // まだスワイプしていないプロフィールの先頭を返す。履歴が変わるたびに再計算する。
-  const currentProfile = useMemo(() => {
-    return profiles.find(p => !history.includes(p.id));
-  }, [profiles, history]);
+  const currentProfile = useMemo(
+    () => profiles.find(p => !history.includes(p.id)),
+    [profiles, history]
+  );
+
+  // 起動時に Spotify のコールバックを処理し、トークンとプロフィールを取得する。
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const token = (await handleCallback()) ?? getStoredToken();
+        if (!token) return;
+        setSpotifyToken(token);
+        setLoadingSpotify(true);
+        const sp = await fetchMySpotifyProfile(token);
+        setMyProfile(prev => ({ ...prev, ...sp, id: 'me' }));
+      } catch (e) {
+        console.error('Spotify init error:', e);
+      } finally {
+        setLoadingSpotify(false);
+      }
+    };
+    init();
+  }, []);
+
+  // 表示中のプロフィールが変わるたびに AI 相性分析を実行する。同じ ID は一度だけ分析する。
+  useEffect(() => {
+    if (!currentProfile) return;
+    if (fetchedIds.current.has(currentProfile.id)) return;
+    fetchedIds.current.add(currentProfile.id);
+
+    setLoadingAIForId(currentProfile.id);
+    analyzeCompatibility(myProfile, currentProfile)
+      .then(result => setAiResults(prev => ({ ...prev, [currentProfile.id]: result })))
+      .catch(e => console.error('AI analysis error:', e))
+      .finally(() => setLoadingAIForId(null));
+  }, [currentProfile?.id]);
+
+  // マッチが成立したとき、2人のプロフィールから共通して好きになれる曲を AI に提案させる。
+  useEffect(() => {
+    if (!isMatch) {
+      setSongSuggestion(null);
+      return;
+    }
+    setLoadingSong(true);
+    suggestSong(myProfile, isMatch)
+      .then(setSongSuggestion)
+      .catch(e => console.error('Song suggestion error:', e))
+      .finally(() => setLoadingSong(false));
+  }, [isMatch?.id]);
 
   // スワイプ方向を受け取り、右スワイプなら60%の確率でマッチ成立。その後、現在のプロフィールを履歴に追加して次へ進む。
   const handleSwipe = (direction: 'left' | 'right') => {
     if (!currentProfile) return;
-
-    if (direction === 'right') {
-      // Simulate match logic
-      if (Math.random() > 0.4) {
-        setIsMatch(currentProfile);
-      }
+    if (direction === 'right' && Math.random() > 0.4) {
+      setIsMatch(currentProfile);
     }
-
     setHistory(prev => [...prev, currentProfile.id]);
   };
 
+  // Spotify からログアウトしてデフォルトプロフィールに戻す。
+  const handleSpotifyDisconnect = () => {
+    clearToken();
+    setSpotifyToken(null);
+    setMyProfile(MY_PROFILE_DEFAULT);
+  };
+
   return (
-    <div className="min-h-screen bg-[#0a0502] text-neutral-200 font-sans overflow-hidden flex flex-col">
+    <div className="h-dvh bg-[#0a0502] text-neutral-200 font-sans overflow-hidden flex flex-col">
       <AnimatePresence>
         {loading && <SplashScreen onComplete={() => setLoading(false)} />}
       </AnimatePresence>
-
       <AnimatePresence>
         {activeChat && <ChatRoom profile={activeChat} onBack={() => setActiveChat(null)} />}
       </AnimatePresence>
@@ -344,13 +420,15 @@ export default function App() {
           <div className="relative h-full flex items-center justify-center">
             <AnimatePresence mode="popLayout">
               {currentProfile ? (
-                <SwipeCard 
+                <SwipeCard
                   key={currentProfile.id}
-                  profile={currentProfile} 
-                  onSwipe={handleSwipe} 
+                  profile={currentProfile}
+                  aiResult={aiResults[currentProfile.id]}
+                  isLoadingAI={loadingAIForId === currentProfile.id}
+                  onSwipe={handleSwipe}
                 />
               ) : (
-                <motion.div 
+                <motion.div
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   className="flex flex-col items-center gap-4 text-center px-8"
@@ -363,7 +441,7 @@ export default function App() {
                   </div>
                   <h3 className="text-2xl font-bold text-white italic tracking-tight">周りに音楽仲間がいません！</h3>
                   <p className="text-sm opacity-60 max-w-[200px]">検索範囲を広げるか、後でもう一度チェックしてください。</p>
-                  <button 
+                  <button
                     onClick={() => setHistory([])}
                     className="mt-6 px-8 py-3 bg-gradient-to-r from-orange-500 to-rose-600 text-white rounded-full font-black text-xs uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-xl shadow-orange-500/20"
                   >
@@ -373,16 +451,15 @@ export default function App() {
               )}
             </AnimatePresence>
 
-            {/* Floating Action Buttons */}
             {currentProfile && (
               <div className="absolute bottom-12 left-0 right-0 flex justify-center gap-6 z-40">
-                <button 
+                <button
                   onClick={() => handleSwipe('left')}
                   className="w-16 h-16 bg-neutral-900/60 backdrop-blur-xl border border-white/10 rounded-full flex items-center justify-center text-neutral-500 hover:text-white hover:border-white transition-all shadow-xl active:scale-90"
                 >
                   <X size={28} />
                 </button>
-                <button 
+                <button
                   onClick={() => handleSwipe('right')}
                   className="w-16 h-16 bg-neutral-900/60 backdrop-blur-xl border border-orange-500/30 rounded-full flex items-center justify-center text-orange-500 hover:bg-orange-500 hover:text-white transition-all shadow-xl shadow-orange-500/10 active:scale-90"
                 >
@@ -399,31 +476,29 @@ export default function App() {
               <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase mb-1">CHANNELS</h2>
               <p className="text-xs font-mono text-orange-500 tracking-widest uppercase">Your Vibe Connections</p>
             </header>
-            
             <div className="space-y-2 overflow-y-auto pb-20 scrollbar-hide">
               <div className="mb-8">
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500 mb-4 px-2">New Jams</p>
                 <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
                   {profiles.slice(2).map(p => (
-                    <motion.div 
-                      key={p.id} 
+                    <motion.div
+                      key={p.id}
                       whileTap={{ scale: 0.95 }}
                       onClick={() => setActiveChat(p)}
                       className="flex-shrink-0 flex flex-col items-center gap-2 cursor-pointer"
                     >
                       <div className="w-16 h-16 rounded-full p-1 ring-2 ring-orange-500 shadow-lg shadow-orange-500/20">
-                        <img src={p.avatar} className="w-full h-full rounded-full object-cover" referrerPolicy="no-referrer" />
+                        <img src={p.avatar} alt={p.name} className="w-full h-full rounded-full object-cover" referrerPolicy="no-referrer" />
                       </div>
                       <span className="text-[10px] font-bold uppercase tracking-tight text-white/80">{p.name}</span>
                     </motion.div>
                   ))}
                 </div>
               </div>
-
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-neutral-500 mb-4 px-2">Messages</p>
               {profiles.filter(p => [profiles[0].id, profiles[1].id].includes(p.id)).map((match, i) => (
-                <motion.div 
-                  key={match.id} 
+                <motion.div
+                  key={match.id}
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.1 }}
@@ -431,7 +506,7 @@ export default function App() {
                   className="bg-white/5 border border-white/5 p-4 rounded-2xl flex items-center gap-4 hover:bg-white/10 cursor-pointer transition-all active:scale-[0.98]"
                 >
                   <div className="relative">
-                    <img src={match.avatar} className="w-14 h-14 rounded-full object-cover" referrerPolicy="no-referrer" />
+                    <img src={match.avatar} alt={match.name} className="w-14 h-14 rounded-full object-cover" referrerPolicy="no-referrer" />
                     <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-orange-500 border-4 border-[#12141a] rounded-full" />
                   </div>
                   <div className="flex-1 overflow-hidden">
@@ -451,25 +526,36 @@ export default function App() {
           <div className="p-6 pb-24 overflow-y-auto h-full scrollbar-hide">
             <div className="flex flex-col items-center mb-10">
               <div className="relative mb-6">
-                <motion.div 
+                <motion.div
                   animate={{ rotate: 360 }}
                   transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
                   className="absolute inset-[-10px] rounded-full border border-dashed border-orange-500/30"
                 />
                 <div className="w-32 h-32 rounded-full border-4 border-orange-500 p-1 relative z-10 shadow-2xl shadow-orange-500/20">
-                  <img src="https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=400&q=80" className="w-full h-full rounded-full object-cover" referrerPolicy="no-referrer" />
+                  {loadingSpotify ? (
+                    <div className="w-full h-full rounded-full bg-white/5 flex items-center justify-center">
+                      <Loader2 size={24} className="animate-spin text-orange-500" />
+                    </div>
+                  ) : (
+                    <img
+                      src={myProfile.avatar || MY_PROFILE_DEFAULT.avatar}
+                      alt={myProfile.name}
+                      className="w-full h-full rounded-full object-cover"
+                      referrerPolicy="no-referrer"
+                    />
+                  )}
                 </div>
                 <div className="absolute bottom-0 right-0 bg-orange-500 p-2 rounded-full shadow-xl border-4 border-[#0a0502] z-20">
                   <Music size={16} className="text-white" />
                 </div>
               </div>
-              <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase mb-1">Kaito</h3>
+              <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase mb-1">{myProfile.name}</h3>
               <div className="flex items-center gap-2 bg-white/5 px-4 py-1.5 rounded-full border border-white/10">
                 <div className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-pulse" />
                 <span className="text-[10px] font-black tracking-widest opacity-60 uppercase">Standard Rank</span>
               </div>
             </div>
-            
+
             <div className="grid grid-cols-2 gap-4 mb-8">
               <div className="bg-white/5 p-4 rounded-2xl border border-white/5 text-center">
                 <p className="text-2xl font-black text-white">42</p>
@@ -488,10 +574,10 @@ export default function App() {
                   <Music size={14} className="opacity-20" />
                 </div>
                 <div className="space-y-3">
-                  {['Radiohead', 'Tame Impala', 'Bonobo', 'Massive Attack'].map((a, i) => (
+                  {myProfile.favoriteArtists.slice(0, 4).map((a, i) => (
                     <div key={a} className="flex items-center justify-between group cursor-pointer">
                       <div className="flex items-center gap-3">
-                        <span className="text-xs font-mono opacity-20">0{i+1}</span>
+                        <span className="text-xs font-mono opacity-20">0{i + 1}</span>
                         <span className="text-sm font-bold text-white/80 group-hover:text-orange-500 transition-colors uppercase italic">{a}</span>
                       </div>
                       <div className="w-8 h-[2px] bg-white/5 group-hover:bg-orange-500/50 transition-colors" />
@@ -500,7 +586,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Followers Definition Section */}
               <div className="bg-orange-500/5 border border-orange-500/10 p-5 rounded-3xl">
                 <div className="flex items-center gap-2 mb-2">
                   <Info size={14} className="text-orange-500" />
@@ -510,11 +595,24 @@ export default function App() {
                   あなたのサウンドに共感したユーザーです。フォローされると、あなたの「今聴いている曲」や新しいプレイリストのアップデートが優先的に彼らのフィードに表示されます。
                 </p>
               </div>
-              
-              <button className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-3 hover:bg-white/10 transition-all group">
-                <AudioLines size={18} className="text-orange-500 group-hover:scale-110 transition-transform" />
-                <span className="text-xs font-black uppercase tracking-widest">Connect Spotify</span>
-              </button>
+
+              {spotifyToken ? (
+                <button
+                  onClick={handleSpotifyDisconnect}
+                  className="w-full py-4 bg-green-500/10 border border-green-500/30 rounded-2xl flex items-center justify-center gap-3 hover:bg-red-500/10 hover:border-red-500/30 transition-all group"
+                >
+                  <AudioLines size={18} className="text-green-500 group-hover:text-red-400" />
+                  <span className="text-xs font-black uppercase tracking-widest text-green-500 group-hover:text-red-400">Spotify 連携済み（タップで解除）</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => loginWithSpotify()}
+                  className="w-full py-4 bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-3 hover:bg-white/10 transition-all group"
+                >
+                  <AudioLines size={18} className="text-orange-500 group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-black uppercase tracking-widest">Connect Spotify</span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -523,21 +621,21 @@ export default function App() {
       {/* Bottom Nav */}
       <nav className="relative z-50 bg-[#0c0f14]/80 backdrop-blur-2xl border-t border-white/5 p-4 pb-[calc(2.5rem+var(--safe-bottom))]">
         <div className="max-w-md mx-auto flex justify-between items-center">
-          <button 
+          <button
             onClick={() => setActiveTab('discover')}
             className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'discover' ? 'text-orange-500 scale-110' : 'text-neutral-500 font-medium'}`}
           >
             <Music size={22} className={activeTab === 'discover' ? 'animate-pulse' : ''} />
             <span className="text-[9px] font-black uppercase tracking-widest">発見</span>
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('matches')}
             className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'matches' ? 'text-orange-500 scale-110' : 'text-neutral-500 font-medium'}`}
           >
             <MessageCircle size={22} />
             <span className="text-[9px] font-black uppercase tracking-widest">ジャム</span>
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('profile')}
             className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'profile' ? 'text-orange-500 scale-110' : 'text-neutral-500 font-medium'}`}
           >
@@ -550,56 +648,73 @@ export default function App() {
       {/* Match Overlay */}
       <AnimatePresence>
         {isMatch && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-[100] bg-black/98 flex flex-col items-center justify-center p-8 text-center overflow-hidden"
           >
-            {/* バックグラウンドエフェクト */}
             <div className="absolute inset-0 pointer-events-none opacity-40">
-               <motion.div 
-                 animate={{ 
-                   scale: [1, 1.5, 1],
-                   opacity: [0.1, 0.3, 0.1]
-                 }}
-                 transition={{ duration: 4, repeat: Infinity }}
-                 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-orange-500 blur-[150px] rounded-full"
-               />
+              <motion.div
+                animate={{ scale: [1, 1.5, 1], opacity: [0.1, 0.3, 0.1] }}
+                transition={{ duration: 4, repeat: Infinity }}
+                className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-orange-500 blur-[150px] rounded-full"
+              />
             </div>
 
             <motion.div
               initial={{ scale: 0.5, rotate: -20, opacity: 0 }}
               animate={{ scale: 1, rotate: 0, opacity: 1 }}
-              className="text-orange-500 mb-10 relative"
+              className="text-orange-500 mb-6 relative"
             >
-              <Heart size={140} fill="currentColor" className="drop-shadow-[0_0_40px_rgba(234,88,12,0.8)]" />
-              <motion.div 
-                animate={{ scale: [1, 1.2, 1] }} 
+              <Heart size={120} fill="currentColor" className="drop-shadow-[0_0_40px_rgba(234,88,12,0.8)]" />
+              <motion.div
+                animate={{ scale: [1, 1.2, 1] }}
                 transition={{ repeat: Infinity, duration: 1.5 }}
                 className="absolute inset-0 flex items-center justify-center"
               >
-                <Music size={40} className="text-white" />
+                <Music size={36} className="text-white" />
               </motion.div>
             </motion.div>
-            
-            <h2 className="text-6xl font-black text-white italic uppercase tracking-tighter mb-4 italic leading-none">JAM!</h2>
-            <p className="text-xl mb-12 max-w-sm text-white/80 leading-relaxed">
+
+            <h2 className="text-6xl font-black text-white italic uppercase tracking-tighter mb-3 leading-none">JAM!</h2>
+            <p className="text-xl mb-6 max-w-sm text-white/80 leading-relaxed">
               <span className="text-orange-500 font-bold">{isMatch.name}</span>さんも
               <span className="font-bold underline decoration-orange-500 decoration-4 underline-offset-4">{isMatch.genres[0]}</span>が好きです！
             </p>
-            
+
+            {/* Song Suggestion */}
+            <div className="w-full max-w-xs mb-6 relative z-10">
+              {loadingSong ? (
+                <div className="bg-white/5 border border-orange-500/20 rounded-2xl p-4 flex items-center gap-3">
+                  <Loader2 size={18} className="animate-spin text-orange-500 shrink-0" />
+                  <p className="text-xs text-white/60 italic">2人へのおすすめ曲を探しています...</p>
+                </div>
+              ) : songSuggestion ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 text-left"
+                >
+                  <p className="text-[10px] text-orange-500 font-black uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                    <Music size={10} />
+                    2人へのおすすめ曲
+                  </p>
+                  <p className="text-white font-black text-sm italic">{songSuggestion.title}</p>
+                  <p className="text-white/60 text-xs mb-1">{songSuggestion.artist}</p>
+                  <p className="text-orange-400/80 text-[11px] italic">"{songSuggestion.reason}"</p>
+                </motion.div>
+              ) : null}
+            </div>
+
             <div className="flex flex-col gap-4 w-full max-w-xs relative z-10">
-              <button 
-                onClick={() => {
-                  setActiveChat(isMatch);
-                  setIsMatch(null);
-                }}
+              <button
+                onClick={() => { setActiveChat(isMatch); setIsMatch(null); }}
                 className="w-full py-5 bg-orange-600 text-white rounded-full font-black uppercase tracking-[0.2em] hover:bg-orange-700 transition-all shadow-2xl shadow-orange-500/40 active:scale-95"
               >
                 ジャムを開始
               </button>
-              <button 
+              <button
                 onClick={() => setIsMatch(null)}
                 className="w-full py-5 bg-white/5 text-white/50 rounded-full font-black uppercase tracking-[0.2em] hover:bg-white/10 transition-all active:scale-95"
               >
