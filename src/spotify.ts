@@ -3,11 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { type MusicProfile } from './types';
-
 const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID ?? '';
 const REDIRECT_URI = window.location.origin;
-const SCOPES = 'user-top-read user-read-currently-playing user-read-private';
+const SCOPES = 'user-top-read user-read-currently-playing user-read-private user-library-read';
 const TOKEN_KEY = 'spotify_access_token';
 const VERIFIER_KEY = 'spotify_code_verifier';
 
@@ -105,31 +103,82 @@ async function spotifyGet(path: string, token: string) {
   return res.json();
 }
 
-// ログイン中ユーザーのプロフィール・トップアーティスト・トップトラック・現在再生中の曲を並行取得し、MusicProfile 形式に変換して返す。
-export async function fetchMySpotifyProfile(token: string): Promise<Partial<MusicProfile>> {
+// ログイン中ユーザーの表示名・アバター・トップアーティスト・ジャンルを取得して返す。
+export async function fetchMySpotifyProfile(token: string): Promise<{
+  name: string;
+  avatar: string;
+  genres: string[];
+  artists: string[];
+  topTracks: { title: string; artist: string; albumCover: string }[];
+  currentlyListening?: { title: string; artist: string };
+}> {
   const [me, topArtists, topTracks] = await Promise.all([
     spotifyGet('/me', token),
     spotifyGet('/me/top/artists?limit=10&time_range=medium_term', token),
     spotifyGet('/me/top/tracks?limit=5&time_range=medium_term', token),
   ]);
 
-  let listeningNow: string | undefined;
+  let currentlyListening: { title: string; artist: string } | undefined;
   try {
     const playing = await spotifyGet('/me/player/currently-playing', token);
     if (playing?.is_playing && playing?.item) {
-      listeningNow = `${playing.item.name} - ${playing.item.artists[0].name}`;
+      currentlyListening = {
+        title: playing.item.name,
+        artist: playing.item.artists[0].name,
+      };
     }
   } catch { /* 再生中でない場合は無視 */ }
 
   const artists: { name: string; genres: string[] }[] = topArtists?.items ?? [];
-  const tracks: { name: string; artists: { name: string }[] }[] = topTracks?.items ?? [];
+  const tracks: { name: string; artists: { name: string }[]; album: { images: { url: string }[] } }[] =
+    topTracks?.items ?? [];
 
   return {
     name: me?.display_name ?? 'Me',
     avatar: me?.images?.[0]?.url ?? '',
-    favoriteArtists: artists.slice(0, 5).map(a => a.name),
-    genres: [...new Set(artists.flatMap(a => a.genres))],
-    topTrack: tracks[0] ? `${tracks[0].name} - ${tracks[0].artists[0].name}` : undefined,
-    listeningNow,
+    genres: [...new Set(artists.flatMap((a) => a.genres))],
+    artists: artists.slice(0, 5).map((a) => a.name),
+    topTracks: tracks.map((t) => ({
+      title: t.name,
+      artist: t.artists[0]?.name ?? '',
+      albumCover: t.album?.images?.[0]?.url ?? '',
+    })),
+    currentlyListening,
   };
+}
+
+// AI が生成した曲リストに対して Spotify 検索でアルバムカバー URL と spotifyId を付与する。
+// key は "title|artist" 形式。トークンなし or エラーの場合は空文字を返す。
+export async function fetchAlbumCovers(
+  songs: Array<{ title: string; artist: string }>,
+  token: string
+): Promise<Record<string, { albumCover: string; spotifyId: string }>> {
+  const result: Record<string, { albumCover: string; spotifyId: string }> = {};
+
+  // レート制限を避けるため10件ずつバッチ処理する
+  const batchSize = 10;
+  for (let i = 0; i < songs.length; i += batchSize) {
+    const batch = songs.slice(i, i + batchSize);
+    await Promise.all(
+      batch.map(async (song) => {
+        const key = `${song.title}|${song.artist}`;
+        try {
+          const q = encodeURIComponent(`track:${song.title} artist:${song.artist}`);
+          const data = await spotifyGet(`/search?q=${q}&type=track&limit=1`, token);
+          const track = data?.tracks?.items?.[0];
+          if (track) {
+            result[key] = {
+              albumCover: track.album?.images?.[0]?.url ?? '',
+              spotifyId: track.id ?? '',
+            };
+          }
+        } catch {
+          // 取得失敗は空文字で記録（プレースホルダー表示にフォールバック）
+          result[key] = { albumCover: '', spotifyId: '' };
+        }
+      })
+    );
+  }
+
+  return result;
 }
