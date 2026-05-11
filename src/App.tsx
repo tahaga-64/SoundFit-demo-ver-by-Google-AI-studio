@@ -898,6 +898,7 @@ export default function App() {
 
   const [songs, setSongs] = useState<Song[]>(() => lsGet<Song[]>(todayKey(), []));
   const [swipeIndex, setSwipeIndex] = useState<number>(() => lsGet<number>('sf_swipe_index', 0));
+  const [aiError, setAiError] = useState(false);
   const [disliked, setDisliked] = useState<string[]>(() => lsGet<string[]>('sf_disliked', []));
   const [playlist, setPlaylist] = useState<PlaylistItem[]>(() => lsGet<PlaylistItem[]>('sf_playlist', []));
   const [loadingAI, setLoadingAI] = useState(false);
@@ -954,15 +955,19 @@ export default function App() {
         lsSet(todayKey(), generated); lsSet('sf_swipe_index', 0); setSongs(generated);
       }
       setSwipeIndex(0);
-    } catch (e) { console.error('Song generation error:', e); }
+    } catch (e) {
+      console.error('Song generation error:', e);
+      setAiError(true); // リトライループを止める
+    }
     finally { setLoadingAI(false); generatingRef.current = false; }
   }, []);
 
   useEffect(() => {
-    if (prefs && songs.length === 0 && !loadingAI && !generatingRef.current) {
+    // aiError が true のときはリトライしない（無限ループ防止）
+    if (prefs && songs.length === 0 && !loadingAI && !generatingRef.current && !aiError) {
       handleOnboardingComplete(prefs);
     }
-  }, [prefs, songs.length, loadingAI, handleOnboardingComplete]);
+  }, [prefs, songs.length, loadingAI, handleOnboardingComplete, aiError]);
 
   const currentSong = songs[swipeIndex] ?? null;
 
@@ -1061,6 +1066,24 @@ export default function App() {
               <AnimatePresence mode="popLayout">
                 <SongSwipeCard key={currentSong.id} song={currentSong} previewUrl={previewUrl} onSwipe={handleSwipe} />
               </AnimatePresence>
+            ) : aiError ? (
+              <div className="flex flex-col items-center gap-5 text-center px-8">
+                <div className="w-20 h-20 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center">
+                  <Sparkles size={36} className="text-rose-400/60" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-white italic mb-1">曲の取得に失敗しました</h3>
+                  <p className="text-sm text-white/40">APIキーを確認してもう一度お試しください</p>
+                </div>
+                {prefs && (
+                  <button
+                    onClick={() => { setAiError(false); handleOnboardingComplete(prefs); }}
+                    className="px-8 py-3 bg-gradient-to-r from-orange-500 to-rose-500 text-white rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-orange-500/25"
+                  >
+                    もう一度試す
+                  </button>
+                )}
+              </div>
             ) : prefs ? (
               <div className="flex flex-col items-center gap-5 text-center px-8">
                 <div className="w-20 h-20 rounded-full bg-white/[0.04] border border-white/10 flex items-center justify-center">
