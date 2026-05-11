@@ -4,7 +4,7 @@
  */
 
 import Anthropic from '@anthropic-ai/sdk';
-import { type MusicProfile, type CompatibilityResult } from './types';
+import { type Song } from './types';
 
 const MODEL = 'claude-haiku-4-5-20251001';
 
@@ -21,10 +21,10 @@ function getClient(): Anthropic {
 }
 
 // 指定したプロンプトを Claude Haiku に送信し、テキスト応答を返す内部関数。
-async function ask(prompt: string): Promise<string> {
+async function ask(prompt: string, maxTokens = 4096): Promise<string> {
   const msg = await getClient().messages.create({
     model: MODEL,
-    max_tokens: 512,
+    max_tokens: maxTokens,
     messages: [{ role: 'user', content: prompt }],
   });
   const block = msg.content[0];
@@ -39,66 +39,58 @@ function parseJSON<T>(text: string): T {
   return value as T;
 }
 
-// AI への接続テスト。「動作確認OK」の応答が返るかどうかで正常稼働を確認する。
-export async function testAIConnection(): Promise<{ ok: boolean; message: string }> {
-  try {
-    const text = await ask('「動作確認OK」とだけ日本語で返答してください。');
-    return { ok: true, message: text.trim() || '応答あり（空レスポンス）' };
-  } catch (e) {
-    return { ok: false, message: e instanceof Error ? e.message : String(e) };
+// ユーザーの好きなジャンル・アーティストから今日の50曲をセレクトして返す。
+// AIが曲名・アーティスト・リリース年・ジャンルを含むJSON配列を生成する。
+// albumCover はこの時点では空文字（後続の fetchAlbumCovers で補完する）。
+export async function selectDailySongs(
+  genres: string[],
+  artists: string[]
+): Promise<Song[]> {
+  const prompt = `あなたは音楽キュレーターの専門家です。
+以下のユーザーの音楽の好みに基づいて、今日のおすすめ曲を50曲セレクトしてください。
+
+好きなジャンル: ${genres.join(', ')}
+好きなアーティスト・バンド: ${artists.join(', ')}
+
+以下の条件でセレクトしてください:
+- ユーザーの好みに合った曲を中心に、新しい発見になる曲も含める
+- 同じアーティストの曲は最大3曲まで
+- 有名曲・隠れた名曲をバランスよく
+- リリース年は1960年代〜2025年まで幅広く
+
+以下のJSON配列形式のみで回答してください（余計なテキスト・説明は一切不要）:
+[
+  {
+    "title": "曲名",
+    "artist": "アーティスト名",
+    "releaseYear": 発売年(整数),
+    "releaseMonth": 発売月(1-12の整数、不明な場合は省略),
+    "genre": "ジャンル名（英語）"
   }
-}
+]
+必ず50曲分のデータを返してください。`;
 
-// 2人の音楽プロフィールを比較し、両者が好きになりそうな曲を1曲だけ AI に提案させる。
-export async function suggestSong(
-  myProfile: MusicProfile,
-  otherProfile: MusicProfile
-): Promise<{ title: string; artist: string; reason: string }> {
-  const prompt = `あなたは音楽の専門家です。
-以下の2人の音楽の好みを分析し、2人が絶対に好きになる曲を1曲だけ提案してください。
+  const text = await ask(prompt, 4096);
 
-ユーザー1 (${myProfile.name}):
-- 好きなアーティスト: ${myProfile.favoriteArtists.join(', ')}
-- ジャンル: ${myProfile.genres.join(', ')}
+  type RawSong = {
+    title: string;
+    artist: string;
+    releaseYear: number;
+    releaseMonth?: number;
+    genre: string;
+  };
 
-ユーザー2 (${otherProfile.name}):
-- 好きなアーティスト: ${otherProfile.favoriteArtists.join(', ')}
-- ジャンル: ${otherProfile.genres.join(', ')}
+  const rawSongs = parseJSON<RawSong[]>(text);
 
-以下のJSON形式のみで回答してください（余計なテキストなし）:
-{
-  "title": "曲名",
-  "artist": "アーティスト名",
-  "reason": "この曲を選んだ理由（30文字以内）"
-}`;
-
-  const text = await ask(prompt);
-  return parseJSON<{ title: string; artist: string; reason: string }>(text);
-}
-
-// 2人の音楽プロフィールから相性スコア（0〜100）・一言コメント・共通点の理由リストを AI に生成させる。
-export async function analyzeCompatibility(
-  myProfile: MusicProfile,
-  otherProfile: MusicProfile
-): Promise<CompatibilityResult> {
-  const prompt = `あなたは音楽の相性を分析するAIアシスタントです。
-以下の2人の音楽プロフィールを分析し、相性を日本語で回答してください。
-
-ユーザー1 (${myProfile.name}):
-- 好きなアーティスト: ${myProfile.favoriteArtists.join(', ')}
-- ジャンル: ${myProfile.genres.join(', ')}
-
-ユーザー2 (${otherProfile.name}):
-- 好きなアーティスト: ${otherProfile.favoriteArtists.join(', ')}
-- ジャンル: ${otherProfile.genres.join(', ')}
-
-以下のJSON形式のみで回答してください（余計なテキストなし）:
-{
-  "score": 相性スコア(0から100の整数),
-  "insight": "相性についての一言コメント（30文字以内）",
-  "reasons": ["共通点や相性の理由1", "共通点や相性の理由2"]
-}`;
-
-  const text = await ask(prompt);
-  return parseJSON<CompatibilityResult>(text);
+  return rawSongs.map((s, i) => ({
+    id: `song-${Date.now()}-${i}`,
+    title: s.title,
+    artist: s.artist,
+    releaseYear: s.releaseYear,
+    releaseMonth: s.releaseMonth,
+    genre: s.genre,
+    albumCover: '', // fetchAlbumCovers で後から補完する
+    spotifyId: undefined,
+    isSuperLiked: false,
+  }));
 }
