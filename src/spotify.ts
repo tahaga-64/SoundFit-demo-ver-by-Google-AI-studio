@@ -3,20 +3,54 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID ?? '';
-const REDIRECT_URI = window.location.origin;
-const SCOPES = 'user-top-read user-read-currently-playing user-read-private user-library-read';
-const TOKEN_KEY = 'spotify_access_token';
-const VERIFIER_KEY = 'spotify_code_verifier';
+// =====================================================================
+// spotify.ts — Spotify Web API との通信をまとめたファイル
+//
+// Spotify API でできること（このアプリでの使用箇所）:
+//   - ログイン（PKCE認証フロー）
+//   - アルバムカバー画像の取得（曲名+アーティスト名で検索）
+//   - 自分のプロフィール取得（名前・アバター・よく聴く曲）
+//
+// PKCE認証とは？
+//   パスワードなしでSpotifyにログインする安全な方法。
+//   1. アプリ → Spotifyの認証画面へリダイレクト
+//   2. ユーザーがSpotifyでログイン・許可
+//   3. Spotify → アプリのURLにコードを付けてリダイレクト
+//   4. アプリがコードとアクセストークンを交換する
+// =====================================================================
 
-// PKCE 認証に使う安全なランダム文字列（コード検証子）を生成する。crypto.getRandomValues で暗号的に安全な乱数を使用する。
+// Vercelの環境変数 VITE_SPOTIFY_CLIENT_ID から SpotifyアプリのIDを読み込む
+const CLIENT_ID = import.meta.env.VITE_SPOTIFY_CLIENT_ID ?? '';
+
+// Spotifyログイン後のリダイレクト先URL（= このアプリ自身のURL）
+const REDIRECT_URI = window.location.origin;
+
+// Spotifyに要求する権限のリスト（スペース区切り）
+// user-top-read: よく聴くアーティスト・曲の取得
+// user-read-currently-playing: 現在再生中の曲の取得
+// user-read-private: プロフィール情報の取得
+// user-library-read: ライブラリの取得
+const SCOPES = 'user-top-read user-read-currently-playing user-read-private user-library-read';
+
+// セッションストレージに保存するキー名（タブを閉じると消える）
+const TOKEN_KEY = 'spotify_access_token';     // アクセストークン保存用
+const VERIFIER_KEY = 'spotify_code_verifier'; // PKCE用コード検証子保存用
+
+
+// --- randomString — 安全なランダム文字列を生成する -------------------
+// PKCE認証の「コード検証子」に使う128文字のランダム文字列を作る。
+// crypto.getRandomValues はブラウザのセキュアな乱数APIで Math.random() より安全。
 function randomString(len: number): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
   const buf = crypto.getRandomValues(new Uint8Array(len));
   return Array.from(buf, v => chars[v % chars.length]).join('');
 }
 
-// 文字列を SHA-256 でハッシュ化し、Base64URL 形式（URL セーフ、パディングなし）に変換する。PKCE のコードチャレンジ生成に使用する。
+
+// --- sha256Base64URL — SHA-256ハッシュ化してBase64URL形式に変換 ------
+// PKCE の「コードチャレンジ」を作るために使う。
+// ハッシュ化とは元の文字列を別の固定長の文字列に変換すること（一方向・不可逆）。
+// Base64URL は URL で安全に送れる文字エンコード（+→- /→_ =削除）。
 async function sha256Base64URL(plain: string): Promise<string> {
   const data = new TextEncoder().encode(plain);
   const digest = await crypto.subtle.digest('SHA-256', data);
@@ -24,11 +58,15 @@ async function sha256Base64URL(plain: string): Promise<string> {
     .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
-// PKCE フローを開始する。コード検証子をセッションに保存し、Spotify の認証画面へリダイレクトする。
+
+// --- loginWithSpotify — Spotifyのログイン画面へ遷移する --------------
+// プロフィールページの「Connect Spotify」ボタンを押したときに呼ばれる。
+// 認証後、このアプリのURLに戻ってきて handleCallback が処理を引き継ぐ。
 export async function loginWithSpotify(): Promise<void> {
   const verifier = randomString(128);
   const challenge = await sha256Base64URL(verifier);
   sessionStorage.setItem(VERIFIER_KEY, verifier);
+  // ↑ コード検証子をセッションストレージに保存（認証後の交換で使う）
 
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
@@ -41,12 +79,15 @@ export async function loginWithSpotify(): Promise<void> {
   window.location.href = `https://accounts.spotify.com/authorize?${params}`;
 }
 
-// Spotify からのリダイレクトを受け取り、URL の認証コードをアクセストークンに交換してセッションに保存する。
-// React StrictMode の二重実行を防ぐため、コードを URL から削除してからトークン交換を行う。
+
+// --- handleCallback — Spotifyからのコールバックを処理する ------------
+// Spotifyでログイン後、URLに付いてきた認証コードをトークンに交換する。
+// React StrictMode では2回実行されるため、コードをURLから削除してから交換する。
 export async function handleCallback(): Promise<string | null> {
   const code = new URLSearchParams(window.location.search).get('code');
   if (!code) return null;
 
+  // URLからコードを削除（ブラウザ履歴をきれいにする）
   const url = new URL(window.location.href);
   url.searchParams.delete('code');
   url.searchParams.delete('state');
@@ -57,6 +98,8 @@ export async function handleCallback(): Promise<string | null> {
   sessionStorage.removeItem(VERIFIER_KEY);
 
   try {
+    // Spotifyのトークンエンドポイントに認証コードと検証子を送り、
+    // アクセストークンを受け取る
     const res = await fetch('https://accounts.spotify.com/api/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -83,27 +126,39 @@ export async function handleCallback(): Promise<string | null> {
   }
 }
 
-// セッションストレージから保存済みの Spotify アクセストークンを取得する。未ログインなら null を返す。
+
+// --- getStoredToken — 保存済みトークンを取得する ---------------------
+// セッションストレージからアクセストークンを取り出す。
+// タブを閉じると消える（sessionStorage の仕様）のでリロード後も維持される。
 export function getStoredToken(): string | null {
   return sessionStorage.getItem(TOKEN_KEY);
 }
 
-// セッションストレージのアクセストークンを削除する（ログアウト用）。
+
+// --- clearToken — トークンを削除する（ログアウト用）-----------------
 export function clearToken(): void {
   sessionStorage.removeItem(TOKEN_KEY);
 }
 
-// Spotify Web API への GET リクエストを行う内部ヘルパー。204 No Content は null を返す。
+
+// --- spotifyGet — Spotify APIへのGETリクエストを行う内部ヘルパー ----
+// path: APIのパス（例: "/me"、"/search?q=..."）
+// token: アクセストークン（Authorizationヘッダーに付けて送る）
+// 204 No Content はコンテンツなし（再生中でないなど）なので null を返す
 async function spotifyGet(path: string, token: string) {
   const res = await fetch(`https://api.spotify.com/v1${path}`, {
     headers: { Authorization: `Bearer ${token}` },
+    // ↑ "Bearer トークン" 形式で認証情報をヘッダーに付ける（Spotify APIの仕様）
   });
   if (res.status === 204) return null;
   if (!res.ok) throw new Error(`Spotify ${res.status}: ${path}`);
   return res.json();
 }
 
-// ログイン中ユーザーの表示名・アバター・トップアーティスト・ジャンルを取得して返す。
+
+// --- fetchMySpotifyProfile — 自分のSpotifyプロフィールを取得 ---------
+// プロフィールページ表示・Spotify連携確認に使う。
+// 3つのAPIを並列で呼んで、名前・アバター・よく聴く曲などをまとめて返す。
 export async function fetchMySpotifyProfile(token: string): Promise<{
   name: string;
   avatar: string;
@@ -112,12 +167,16 @@ export async function fetchMySpotifyProfile(token: string): Promise<{
   topTracks: { title: string; artist: string; albumCover: string }[];
   currentlyListening?: { title: string; artist: string };
 }> {
+  // Promise.all で3つのAPIを並列で呼び出す（順番に呼ぶより速い）
   const [me, topArtists, topTracks] = await Promise.all([
     spotifyGet('/me', token),
     spotifyGet('/me/top/artists?limit=10&time_range=medium_term', token),
+    // ↑ 過去6ヶ月のトップ10アーティスト（medium_term = 約6ヶ月）
     spotifyGet('/me/top/tracks?limit=5&time_range=medium_term', token),
+    // ↑ 過去6ヶ月のトップ5曲
   ]);
 
+  // 現在再生中の曲を取得（再生していないとエラーになるので try/catch）
   let currentlyListening: { title: string; artist: string } | undefined;
   try {
     const playing = await spotifyGet('/me/player/currently-playing', token);
@@ -137,6 +196,7 @@ export async function fetchMySpotifyProfile(token: string): Promise<{
     name: me?.display_name ?? 'Me',
     avatar: me?.images?.[0]?.url ?? '',
     genres: [...new Set(artists.flatMap((a) => a.genres))],
+    // ↑ 全アーティストのジャンルをまとめて、Set で重複を除去する
     artists: artists.slice(0, 5).map((a) => a.name),
     topTracks: tracks.map((t) => ({
       title: t.name,
@@ -147,18 +207,23 @@ export async function fetchMySpotifyProfile(token: string): Promise<{
   };
 }
 
-// AI が生成した曲リストに対して Spotify 検索でアルバムカバー URL と spotifyId を付与する。
-// key は "title|artist" 形式。トークンなし or エラーの場合は空文字を返す。
+
+// --- fetchAlbumCovers — 曲リストのアルバムカバーをまとめて取得 -------
+// AIが生成した曲リストに対して Spotify の検索APIで画像URLとIDを付与する。
+// "曲名|アーティスト名" をキーとするオブジェクトを返す。
+// 例: { "Blinding Lights|The Weeknd": { albumCover: "https://...", spotifyId: "abc" } }
+//
+// 10件ずつバッチ処理するのは Spotify APIのレート制限を避けるため。
 export async function fetchAlbumCovers(
   songs: Array<{ title: string; artist: string }>,
   token: string
 ): Promise<Record<string, { albumCover: string; spotifyId: string }>> {
   const result: Record<string, { albumCover: string; spotifyId: string }> = {};
 
-  // レート制限を避けるため10件ずつバッチ処理する
   const batchSize = 10;
   for (let i = 0; i < songs.length; i += batchSize) {
     const batch = songs.slice(i, i + batchSize);
+
     await Promise.all(
       batch.map(async (song) => {
         const key = `${song.title}|${song.artist}`;
@@ -173,7 +238,7 @@ export async function fetchAlbumCovers(
             };
           }
         } catch {
-          // 取得失敗は空文字で記録（プレースホルダー表示にフォールバック）
+          // 1曲の取得失敗が全体に影響しないよう空文字で記録（プレースホルダー表示）
           result[key] = { albumCover: '', spotifyId: '' };
         }
       })
