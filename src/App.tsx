@@ -898,7 +898,7 @@ export default function App() {
 
   const [songs, setSongs] = useState<Song[]>(() => lsGet<Song[]>(todayKey(), []));
   const [swipeIndex, setSwipeIndex] = useState<number>(() => lsGet<number>('sf_swipe_index', 0));
-  const [aiError, setAiError] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [disliked, setDisliked] = useState<string[]>(() => lsGet<string[]>('sf_disliked', []));
   const [playlist, setPlaylist] = useState<PlaylistItem[]>(() => lsGet<PlaylistItem[]>('sf_playlist', []));
   const [loadingAI, setLoadingAI] = useState(false);
@@ -956,8 +956,9 @@ export default function App() {
       }
       setSwipeIndex(0);
     } catch (e) {
-      console.error('Song generation error:', e);
-      setAiError(true);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error('Song generation error:', msg);
+      setAiError(msg);
     }
     finally { setLoadingAI(false); generatingRef.current = false; }
   }, []);
@@ -1073,11 +1074,12 @@ export default function App() {
                 </div>
                 <div>
                   <h3 className="text-xl font-black text-white italic mb-1">曲の取得に失敗しました</h3>
-                  <p className="text-sm text-white/40">APIキーを確認してもう一度お試しください</p>
+                  <p className="text-sm text-white/40 mb-2">APIキーを確認してもう一度お試しください</p>
+                  {aiError && <p className="text-xs text-rose-400/70 font-mono break-all max-w-xs">{aiError}</p>}
                 </div>
                 {prefs && (
                   <button
-                    onClick={() => { setAiError(false); handleOnboardingComplete(prefs); }}
+                    onClick={() => { setAiError(null); handleOnboardingComplete(prefs); }}
                     className="px-8 py-3 bg-gradient-to-r from-orange-500 to-rose-500 text-white rounded-full font-black text-xs uppercase tracking-widest active:scale-95 transition-all shadow-xl shadow-orange-500/25"
                   >
                     もう一度試す
