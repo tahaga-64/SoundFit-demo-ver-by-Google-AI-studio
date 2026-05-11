@@ -3,6 +3,25 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+// =====================================================================
+// App.tsx — SoundFit アプリの画面・ロジック・状態管理をすべて担うファイル
+//
+// このファイルの構成:
+//   1. ユーティリティ関数（localStorage操作・ID生成・時間フォーマット）
+//   2. 小さなUIコンポーネント（AlbumPlaceholder・EqBars）
+//   3. 画面コンポーネント（SplashScreen・OnboardingScreen）
+//   4. 主要コンポーネント（SongSwipeCard・PlaylistTab・FriendsTab・ProfileTab）
+//   5. ルートコンポーネント App（状態管理・イベント処理・画面切り替え）
+//
+// React とは？
+//   UIをコンポーネント（部品）に分けて作るJavaScriptライブラリ。
+//   各コンポーネントは「状態（state）」が変わると自動で再描画される。
+//
+// TypeScript とは？
+//   JavaScriptに型チェックを追加した言語。
+//   変数の型を指定することでバグを早期発見できる。
+// =====================================================================
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence, useMotionValue, useTransform, type PanInfo } from 'motion/react';
 import {
@@ -22,53 +41,81 @@ import {
 import { fetchPreviewUrl } from './deezer';
 
 // ---- localStorage ヘルパー ----------------------------------------
+// localStorage とは？
+//   ブラウザがウェブサイトごとにデータを永続保存できる仕組み。
+//   タブを閉じても・リロードしても消えない（明示的に削除するまで）。
+//   このアプリでは プレイリスト・スワイプ状態・ユーザー設定 を保存している。
 
+// lsGet — localStorageから値を読み出す
+// <T> は「どんな型でも受け取れる」ジェネリクス（型の変数）。
+// 保存されていない場合やJSONパースが失敗した場合は fallback 値を返す。
 function lsGet<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
     if (!raw) return fallback;
-    return JSON.parse(raw) as T;
+    return JSON.parse(raw) as T; // JSON文字列をJavaScriptオブジェクトに変換
   } catch { return fallback; }
 }
 
+// lsSet — localStorageに値を保存する
+// JSON.stringify でオブジェクトをJSON文字列に変換してから保存する。
+// ストレージ容量オーバー時は黙って失敗する（/* quota */ コメントはその意味）。
 function lsSet(key: string, value: unknown) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota */ }
 }
 
+// todayKey — 今日の曲データを保存するキー名を生成する
+// 例: "sf_daily_2024-05-11"
+// 日付ごとにキーが変わるため、翌日に自動的に新しい50曲が生成される。
 function todayKey() {
   return `sf_daily_${new Date().toISOString().slice(0, 10)}`;
 }
 
+// formatTime — 秒数を "0:XX" 形式の文字列に変換する
+// 例: 17 → "0:17", 5 → "0:05"
+// 試聴プレイヤーの再生時間表示に使う。
 function formatTime(secs: number): string {
   const s = Math.floor(secs);
-  return `0:${String(s).padStart(2, '0')}`;
+  return `0:${String(s).padStart(2, '0')}`; // padStart(2,'0')：1桁なら先頭に0を付ける
 }
 
 // ---- ユーザーID 生成 ------------------------------------------------
-
+// フレンド機能で使う自分のユーザーID（英数字6文字）を取得または生成する。
+// 例: "RK9M2X"
+// 初回は新規生成して localStorage に保存し、2回目以降は保存済みのIDを返す。
+// これによりブラウザを閉じても同じIDが使われる。
 function getOrCreateUserId(): string {
   const existing = localStorage.getItem('sf_user_id');
-  if (existing) return existing;
+  if (existing) return existing; // 保存済みIDがあれば返す
+
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  const buf = crypto.getRandomValues(new Uint8Array(6));
+  const buf = crypto.getRandomValues(new Uint8Array(6)); // 6バイトの乱数
   const id = Array.from(buf, b => chars[b % chars.length]).join('');
+  // ↑ 各バイト値を chars のインデックスに変換して文字を選び、6文字のIDにする
+
   localStorage.setItem('sf_user_id', id);
   return id;
 }
 
 // ---- ジャンル別プレースホルダー背景 ---------------------------------
-
+// アルバムカバー画像が取得できないときに表示するグラデーション背景コンポーネント。
+// genre に応じて GENRE_COLORS（types.ts で定義）からグラデーションの色を選ぶ。
+// size='sm' は小さいサムネイル用、'full' はカード全体を覆う大きいサイズ。
 function AlbumPlaceholder({ genre, size = 'full' }: { genre: string; size?: 'full' | 'sm' }) {
   const gradient = GENRE_COLORS[genre] ?? 'from-neutral-700 to-neutral-900';
+  // ↑ ?? はヌル合体演算子：GENRE_COLORS にそのジャンルがなければデフォルトグラデーション
   return (
     <div className={`bg-gradient-to-br ${gradient} w-full h-full flex items-center justify-center`}>
       <Disc3 size={size === 'sm' ? 18 : 56} className="text-white/20" />
+      {/* ↑ Disc3 はレコードのアイコン。text-white/20 は白色・透明度20% */}
     </div>
   );
 }
 
 // ---- イコライザーバー (再生中アニメーション) -------------------------
-
+// 音楽再生中に表示するイコライザー風アニメーションのコンポーネント。
+// 9本の細い棒が上下に波打つアニメーションで「今流れている感」を演出する。
+// playing が true のとき動き、false のとき静止する（高さ2px）。
 function EqBars({ playing }: { playing: boolean }) {
   const heights = [3, 5, 4, 7, 3, 6, 4, 5, 3];
   return (
@@ -95,7 +142,10 @@ function EqBars({ playing }: { playing: boolean }) {
 }
 
 // ---- SplashScreen --------------------------------------------------
-
+// アプリ起動時に最初に表示されるロゴ画面（スプラッシュスクリーン）。
+// レコードが回転するアニメーションと「SoundFit」ロゴを2.5秒間表示し、
+// タイムアウト後に onComplete コールバックを呼んで次の画面へ移行する。
+// motion/react（Framer Motion）ライブラリでアニメーションを実装している。
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
   useEffect(() => {
     const t = setTimeout(onComplete, 2500);
@@ -140,6 +190,12 @@ function SplashScreen({ onComplete }: { onComplete: () => void }) {
 }
 
 // ---- OnboardingScreen ----------------------------------------------
+// 初回起動時に表示される3ステップの初期設定画面。
+//   Step1: ニックネーム入力
+//   Step2: 好きなジャンルをタップして複数選択
+//   Step3: 好きなアーティスト名をテキスト入力して追加
+// 完了ボタンを押すと onComplete が呼ばれ、AI が50曲を生成し始める。
+// 設定はlocalStorageに保存されるため、次回起動時はこの画面をスキップする。
 
 const GENRE_OPTIONS = [
   'Pop', 'Rock', 'Jazz', 'Hip-Hop', 'Electronic', 'Classical',
@@ -268,7 +324,23 @@ function OnboardingScreen({ onComplete }: { onComplete: (prefs: UserPreferences)
 }
 
 // ---- SongSwipeCard -------------------------------------------------
-
+// 曲をスワイプするメインカードコンポーネント。Tinderのカードと同じ仕組み。
+//
+// スワイプの方向と効果:
+//   右スワイプ → ♡ SAVE（プレイリストに追加）
+//   左スワイプ → SKIP（その曲を今後表示しない）
+//   上スワイプ → ★ SUPER（★付きでプレイリストに追加）
+//
+// アニメーションの仕組み（Framer Motion）:
+//   x, y: カードのドラッグ位置をリアルタイムで追跡
+//   rotate: x の値に連動してカードが傾く（左右に引っ張るほど傾く）
+//   opacity: 端に行くほど薄くなる
+//   overlayRight/Left/Up: ドラッグ方向に応じた色のオーバーレイを表示
+//   addLabel/skipLabel/superLabel: 一定以上引っ張るとラベルが現れる
+//
+// 音楽再生（Deezer プレビュー）:
+//   previewUrl が渡された場合は自動再生し、プログレスバーとコントロールを表示する。
+//   カードがスワイプされると音楽も止まる。
 function SongSwipeCard({ song, previewUrl, onSwipe }: {
   song: Song;
   previewUrl: string | null;
@@ -455,7 +527,10 @@ function SongSwipeCard({ song, previewUrl, onSwipe }: {
 }
 
 // ---- PlaylistTab ---------------------------------------------------
-
+// 「リスト」タブの画面。右スワイプ・上スワイプで保存した曲の一覧を表示する。
+// ★（スーパーLIKE）の曲には金色の星アイコンが付く。
+// Spotify連携済みの場合、各曲の右端に「Spotifyで開く」リンクアイコンが表示される。
+// 曲がまだない場合は「まだ何も保存されていません」メッセージを表示する。
 function PlaylistTab({ items }: { items: PlaylistItem[] }) {
   return (
     <div className="h-full flex flex-col overflow-y-auto pb-24 scrollbar-hide">
@@ -533,7 +608,17 @@ function PlaylistTab({ items }: { items: PlaylistItem[] }) {
 }
 
 // ---- FriendsTab ----------------------------------------------------
-
+// 「フレンド」タブの画面。IDでフレンドを検索・追加・一覧表示する。
+//
+// 動作フロー:
+//   1. 検索欄に6文字のIDを入力（例: "RK9M2X"）
+//   2. 検索ボタン or Enterで DEMO_FRIENDS から一致するアカウントを探す
+//   3. 見つかればアバター・名前・ジャンル・追加ボタンを表示
+//   4. 追加するとフレンドリストに表示され、今聴いている曲が見える
+//   5. フレンドのアバターをタップすると FriendDetailView へ遷移
+//
+// selectedFriend が null でなければ詳細ビュー（FriendDetailView）を表示する。
+// このような「画面内での画面切り替え」はReactでよく使うパターン。
 function FriendsTab({ friends, onToggleFriend }: {
   friends: FriendAccount[];
   onToggleFriend: (id: string) => void;
@@ -664,7 +749,10 @@ function FriendsTab({ friends, onToggleFriend }: {
 }
 
 // ---- FriendDetailView ----------------------------------------------
-
+// フレンドの詳細ページ。FriendsTab でフレンドをタップすると表示される。
+// 上部にフレンドのアバターをぼかしてヒーロー背景として使うオシャレなデザイン。
+// 「今聴いている曲」「好きなジャンル」「フレンド追加/解除ボタン」を表示する。
+// onBack を呼ぶと FriendsTab のリスト表示に戻る。
 function FriendDetailView({ friend, onBack, onToggleFriend }: {
   friend: FriendAccount;
   onBack: () => void;
@@ -730,7 +818,17 @@ function FriendDetailView({ friend, onBack, onToggleFriend }: {
 }
 
 // ---- ProfileTab ----------------------------------------------------
-
+// 「マイページ」タブの画面。自分のプロフィールと音楽データを表示する。
+//
+// 表示内容:
+//   - アバター画像（Spotify連携時はSpotifyのアバター、未連携は橙グラデーション）
+//   - ユーザーID（タップでクリップボードにコピー）
+//   - 統計（保存曲数・ジャンル数・スーパーLIKE数）
+//   - 今聴いている曲（Spotify連携時のみ）
+//   - 最近ハマっている曲（★スーパーLIKEした最新曲）
+//   - 今月のトップ5曲（Spotify連携時はSpotifyデータ、未連携は保存曲）
+//   - 好きなジャンルバッジ
+//   - Spotify連携ボタン（未連携→ログイン画面へ、連携済み→タップで解除）
 function ProfileTab({
   prefs, userId, spotifyToken, loadingSpotify, spotifyData, playlist, onSpotifyConnect, onSpotifyDisconnect,
 }: {
@@ -887,36 +985,85 @@ function ProfileTab({
 }
 
 // ---- App (root) ----------------------------------------------------
+// アプリのルート（根幹）コンポーネント。すべての状態管理とロジックを担う。
+//
+// 状態（state）とは？
+//   React コンポーネントが持つ「動的なデータ」。
+//   useState で宣言し、値が変わると自動的に画面が再描画される。
+//
+// このコンポーネントが管理する主な状態:
+//   splash    — スプラッシュ画面表示中かどうか
+//   prefs     — ユーザーの音楽の好み（null なら未設定 = オンボーディング表示）
+//   songs     — 今日の50曲リスト
+//   swipeIndex — 現在表示中の曲のインデックス（位置）
+//   playlist  — 保存した曲のリスト
+//   friendIds — 追加したフレンドのIDリスト
+//   spotifyToken — Spotify の認証トークン（null なら未ログイン）
 
+// Tab 型: ナビゲーションバーの4つのタブ名を型として定義
 type Tab = 'discover' | 'playlist' | 'friends' | 'profile';
 
 export default function App() {
+  // スプラッシュ画面の表示フラグ（初期値 true = 起動時に表示）
   const [splash, setSplash] = useState(true);
+
+  // ユーザーの好みの設定（localStorageから初期値を読む。未設定なら null）
   const [prefs, setPrefs] = useState<UserPreferences | null>(() => lsGet<UserPreferences | null>('sf_prefs', null));
+
+  // 自分のユーザーID（初回生成 or localStorageから取得）
   const [userId] = useState(() => getOrCreateUserId());
+
+  // 現在表示中のタブ
   const [activeTab, setActiveTab] = useState<Tab>('discover');
 
+  // 今日の50曲リスト（localStorageから復元。なければ空配列）
   const [songs, setSongs] = useState<Song[]>(() => lsGet<Song[]>(todayKey(), []));
+
+  // 現在スワイプ中の曲のインデックス（localStorageから復元）
   const [swipeIndex, setSwipeIndex] = useState<number>(() => lsGet<number>('sf_swipe_index', 0));
+
+  // AI呼び出しのエラーメッセージ（null = エラーなし）
   const [aiError, setAiError] = useState<string | null>(null);
+
+  // 左スワイプ（SKIP）した曲のIDリスト（同じ曲を再表示しないため）
   const [disliked, setDisliked] = useState<string[]>(() => lsGet<string[]>('sf_disliked', []));
+
+  // 保存した曲のプレイリスト
   const [playlist, setPlaylist] = useState<PlaylistItem[]>(() => lsGet<PlaylistItem[]>('sf_playlist', []));
+
+  // AI呼び出し中かどうか（ローディングスピナー表示に使う）
   const [loadingAI, setLoadingAI] = useState(false);
 
+  // 追加済みフレンドのIDリスト
   const [friendIds, setFriendIds] = useState<string[]>(() => lsGet<string[]>('sf_friends', []));
+
+  // DEMO_FRIENDS に isAdded フラグを付けたフレンドリスト
   const friends: FriendAccount[] = DEMO_FRIENDS.map(f => ({ ...f, isAdded: friendIds.includes(f.id) }));
 
+  // Spotify のアクセストークン（null = 未ログイン）
   const [spotifyToken, setSpotifyToken] = useState<string | null>(null);
+
+  // Spotify プロフィール取得中かどうか
   const [loadingSpotify, setLoadingSpotify] = useState(false);
+
+  // Spotify から取得したプロフィールデータ
   const [spotifyData, setSpotifyData] = useState<{
     name: string; avatar: string;
     topTracks: { title: string; artist: string; albumCover: string }[];
     currentlyListening?: { title: string; artist: string };
   } | null>(null);
 
+  // AI呼び出しが進行中かを追跡するRef（useRefはstateと違い再描画を起こさない）
+  // これがないと useEffect が無限ループする可能性がある
   const generatingRef = useRef(false);
+
+  // 現在表示中の曲の Deezer 試聴URL
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
+  // Spotify 初期化: アプリ起動時に1回だけ実行される
+  // handleCallback() は URL に Spotify の認証コードがあれば処理する（ログイン後の画面遷移）
+  // getStoredToken() は前回のセッションで保存済みのトークンを取り出す
+  // トークンが取得できたらプロフィールデータを取得してstateに保存する
   useEffect(() => {
     const init = async () => {
       try {
@@ -930,8 +1077,18 @@ export default function App() {
       finally { setLoadingSpotify(false); }
     };
     init();
-  }, []);
+  }, []); // [] = 依存配列が空なので「マウント時に1回だけ」実行される
 
+  // handleOnboardingComplete — オンボーディング完了 or 曲生成を行う関数
+  // useCallback でメモ化しているのは、useEffect の依存配列に入れるため。
+  // メモ化しないと毎回レンダリングで新しい関数が作られ、useEffect が無限ループする。
+  //
+  // 処理の流れ:
+  //   1. ユーザーの好みを localStorage に保存
+  //   2. AI（Claude Haiku）に50曲を生成してもらう
+  //   3. Spotify ログイン済みならアルバムカバー画像を取得して曲データに付与
+  //   4. 曲リストを localStorage と state に保存してスワイプ開始
+  //   5. エラーが起きた場合はエラーメッセージを state に保存
   const handleOnboardingComplete = useCallback(async (newPrefs: UserPreferences) => {
     lsSet('sf_prefs', newPrefs);
     setPrefs(newPrefs);
@@ -963,21 +1120,29 @@ export default function App() {
     finally { setLoadingAI(false); generatingRef.current = false; }
   }, []);
 
+  // 曲がない場合に自動で生成を開始する useEffect
+  // 条件: 好みが設定済み & 曲が0曲 & AI実行中でない & エラー状態でない
+  // aiError があるときは無限リトライを防ぐためにスキップする
   useEffect(() => {
-    // aiError が true のときはリトライしない（無限ループ防止）
     if (prefs && songs.length === 0 && !loadingAI && !generatingRef.current && !aiError) {
       handleOnboardingComplete(prefs);
     }
   }, [prefs, songs.length, loadingAI, handleOnboardingComplete, aiError]);
 
+  // 現在表示中の曲（songs 配列の swipeIndex 番目）。最後まで行くと null になる
   const currentSong = songs[swipeIndex] ?? null;
 
+  // 曲が変わるたびに Deezer から試聴URLを取得する
+  // currentSong?.id が変わったときだけ実行される（曲ごとに1回）
   useEffect(() => {
-    setPreviewUrl(null);
+    setPreviewUrl(null); // 前の曲のURLをリセット
     if (!currentSong) return;
     fetchPreviewUrl(currentSong.title, currentSong.artist).then(setPreviewUrl);
   }, [currentSong?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // handleSwipe — スワイプ処理（左・右・上）
+  // dir が 'right' か 'up' なら playlist に追加。'left' なら disliked に追加。
+  // 次の曲へ進むためにインデックスを +1 し、localStorage にも保存する。
   const handleSwipe = (dir: 'left' | 'right' | 'up') => {
     if (!currentSong) return;
     const nextIndex = swipeIndex + 1;
@@ -997,6 +1162,8 @@ export default function App() {
     }
   };
 
+  // handleToggleFriend — フレンドの追加/解除をトグルする
+  // friendIds にすでにいれば削除、いなければ追加してlocalStorageに保存
   const handleToggleFriend = (id: string) => {
     setFriendIds(prev => {
       const updated = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
